@@ -41,6 +41,14 @@ import requests
 GRAPH = "https://graph.facebook.com/v21.0"  # VERIFY version (see module docstring)
 
 
+def _raise_with_body(r):
+    """requests' raise_for_status() drops the response body; print Meta's actual
+    error JSON (it's the only useful diagnostic) before re-raising."""
+    if not r.ok:
+        print(f"[post_meta] Graph API error {r.status_code}: {r.text}", file=sys.stderr)
+    r.raise_for_status()
+
+
 def post_instagram_reel(ig_user_id, token, video_url, caption):
     # 1. create container
     r = requests.post(
@@ -53,7 +61,7 @@ def post_instagram_reel(ig_user_id, token, video_url, caption):
         },
         timeout=60,
     )
-    r.raise_for_status()
+    _raise_with_body(r)
     creation_id = r.json()["id"]
     print(f"[post_meta] IG container created: {creation_id}")
 
@@ -64,7 +72,7 @@ def post_instagram_reel(ig_user_id, token, video_url, caption):
             params={"fields": "status_code,status", "access_token": token},
             timeout=30,
         )
-        s.raise_for_status()
+        _raise_with_body(s)
         status = s.json().get("status_code")
         print(f"[post_meta] IG container status: {status}")
         if status == "FINISHED":
@@ -81,7 +89,7 @@ def post_instagram_reel(ig_user_id, token, video_url, caption):
         data={"creation_id": creation_id, "access_token": token},
         timeout=60,
     )
-    p.raise_for_status()
+    _raise_with_body(p)
     print(f"[post_meta] IG published: {p.json()}")
     return p.json()
 
@@ -94,7 +102,7 @@ def post_facebook_video(page_id, token, video_path, description):
             files={"source": f},
             timeout=600,
         )
-    r.raise_for_status()
+    _raise_with_body(r)
     print(f"[post_meta] FB published: {r.json()}")
     return r.json()
 

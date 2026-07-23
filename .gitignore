@@ -8,6 +8,8 @@ env/
 # Local secrets (never commit)
 .env
 *.env
+*.local.ps1
+*.local.json
 
 # Pipeline working output (regenerated every run)
 build/
