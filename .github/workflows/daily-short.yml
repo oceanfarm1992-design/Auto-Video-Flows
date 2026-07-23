@@ -1,0 +1,147 @@
+name: daily-short
+
+# Two schedules in one file. Jobs are gated on which cron fired (github.event.schedule)
+# so the daily pipeline and the weekly Meta-token refresh don't step on each other.
+# You can also trigger either job manually with the "job" input.
+on:
+  schedule:
+    - cron: "0 14 * * *"   # daily 14:00 UTC -> build + post
+    - cron: "0 6 * * 1"    # Mondays 06:00 UTC -> refresh Meta long-lived token
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "Which job to run manually"
+        type: choice
+        options: [build_and_post, refresh_meta_token]
+        default: build_and_post
+
+permissions:
+  contents: write          # commit logs/history.csv and create the release asset
+
+jobs:
+  build_and_post:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.job == 'build_and_post'
+      || github.event.schedule == '0 14 * * *'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps (ffmpeg, fonts, espeak fallback)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core espeak-ng
+
+      - name: Install python deps
+        run: pip install -r requirements.txt
+
+      # ---- content pipeline ----
+      - name: Fetch script text
+        run: python scripts/fetch_script_text.py
+
+      - name: Fetch archive.org footage
+        run: python scripts/fetch_archive_footage.py
+
+      - name: Generate TTS voiceover
+        # If Piper install/model download misbehaves, fall back to espeak-ng so the
+        # daily run still produces audio instead of failing hard.
+        run: |
+          python scripts/generate_tts.py || \
+          python scripts/generate_tts.py --fallback espeak
+
+      - name: Generate captions
+        run: python scripts/generate_captions.py
+
+      - name: Assemble video
+        run: python scripts/assemble_video.py
+
+      # ---- make the video publicly fetchable (Instagram Reels needs a public URL) ----
+      # NOTE: release assets are only PUBLICLY reachable if this repo is PUBLIC.
+      # For a private repo, host final.mp4 elsewhere and set VIDEO_URL accordingly.
+      - name: Publish video as release asset
+        id: publish_asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="daily-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" build/final.mp4 \
+            --title "$TAG" --notes "Automated daily short" --latest=false
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/final.mp4"
+          echo "video_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Public video URL: $URL"
+
+      # ---- posting (continue-on-error so one platform failing doesn't block others) ----
+      - name: Post to Meta (Instagram Reels + Facebook)
+        id: post_meta
+        continue-on-error: true
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_IG_USER_ID: ${{ secrets.META_IG_USER_ID }}
+          META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
+        run: |
+          python scripts/post_meta.py \
+            --video build/final.mp4 \
+            --video-url "${{ steps.publish_asset.outputs.video_url }}" \
+            --caption-file build/caption_meta.txt
+
+      - name: Post to TikTok (draft / SELF_ONLY)
+        id: post_tiktok
+        continue-on-error: true
+        env:
+          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
+          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
+          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: |
+          python scripts/post_tiktok.py \
+            --video build/final.mp4 --title-file build/caption_tiktok.txt
+
+      - name: Post to YouTube Shorts
+        id: post_youtube
+        continue-on-error: true
+        env:
+          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
+        run: |
+          python scripts/post_youtube.py \
+            --video build/final.mp4 \
+            --title-file build/yt_title.txt \
+            --desc-file build/caption_youtube.txt
+
+      # ---- log results back to the repo ----
+      - name: Append run to history log
+        if: always()
+        run: |
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
+          IDENT=$(python -c "import json;print(json.load(open('build/footage.json'))['identifier'])" 2>/dev/null || echo "unknown")
+          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},${{ steps.post_meta.outcome }},${{ steps.post_tiktok.outcome }},${{ steps.post_youtube.outcome }}" >> logs/history.csv
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add logs/history.csv
+          git commit -m "log: daily run ${DATE}" || echo "nothing to commit"
+          git push
+
+  refresh_meta_token:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.job == 'refresh_meta_token'
+      || github.event.schedule == '0 6 * * 1'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install requests PyNaCl
+      - name: Refresh + persist Meta long-lived token
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_APP_ID: ${{ secrets.META_APP_ID }}
+          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: python scripts/refresh_meta_token.py

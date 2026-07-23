@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(python -c \"import json;json.load\\(open\\('config/sources.json'\\)\\);print\\('json ok'\\)\")",
+      "Bash(python -m py_compile scripts/*.py)",
+      "Bash(py -c \"import json;json.load\\(open\\('config/sources.json'\\)\\);print\\('json ok'\\)\")",
+      "Bash(py -m py_compile scripts/fetch_script_text.py scripts/fetch_archive_footage.py scripts/generate_tts.py scripts/generate_captions.py scripts/assemble_video.py scripts/post_meta.py scripts/post_tiktok.py scripts/post_youtube.py scripts/refresh_meta_token.py scripts/update_github_secret.py)"
+    ]
+  }
+}
