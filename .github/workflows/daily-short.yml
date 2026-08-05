@@ -7,6 +7,12 @@ on:
   schedule:
     - cron: "0 14 * * *"   # daily 14:00 UTC -> build + post
   workflow_dispatch:
+    inputs:
+      footage_source:
+        description: "Force footage source (blank = auto: pexels -> pixabay -> animate)"
+        type: choice
+        options: ["", "pexels", "pixabay", "animate", "archive"]
+        default: ""
 
 permissions:
   contents: write          # commit logs/history.csv and create the release asset
@@ -33,11 +39,16 @@ jobs:
       - name: Fetch script text
         run: python scripts/fetch_script_text.py
 
-      - name: Fetch footage (Pexels / Pixabay / archive.org)
+      - name: Fetch footage (Pexels / Pixabay / animation)
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-        run: python scripts/fetch_footage.py
+        run: |
+          ARG=""
+          if [ -n "${{ inputs.footage_source }}" ]; then
+            ARG="--source ${{ inputs.footage_source }}"
+          fi
+          python scripts/fetch_footage.py $ARG
 
       - name: Generate TTS voiceover
         # If Piper install/model download misbehaves, fall back to espeak-ng so the

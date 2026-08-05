@@ -2,10 +2,9 @@
 """
 Stage 1: pick a public-domain excerpt to narrate.
 
-We rotate deterministically through the excerpts listed in config/sources.json so
-that every day gets a different one without needing to remember state. The rotation
-key is the day-of-year, which is stable within a single day (same across all stages
-of one CI run) and cycles through the whole catalogue over time.
+We pick a random excerpt from config/sources.json each run, so repeated runs (e.g.
+testing several times in one day) don't keep producing the identical video. Pass
+--index to force a specific excerpt for reproducible local testing.
 
 Output: build/script.json  { "id", "title", "author", "text", "hook" }
         build/script.txt   (raw narration text, convenient for TTS)
@@ -16,9 +15,9 @@ Usage:
     python scripts/fetch_script_text.py --config config/sources.json --out build
 """
 import argparse
-import datetime
 import json
 import os
+import random
 
 
 def load_flat_excerpts(config):
@@ -95,8 +94,9 @@ def main():
     if args.index is not None:
         idx = args.index % len(flat)
     else:
-        day_of_year = datetime.date.today().timetuple().tm_yday
-        idx = day_of_year % len(flat)
+        # random each run so repeated runs (e.g. testing on the same day) don't keep
+        # producing the identical quote — day-based rotation made every run today the same.
+        idx = random.randrange(len(flat))
 
     item = flat[idx]
     item["hook"] = make_hook(item)

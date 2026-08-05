@@ -66,8 +66,11 @@ def build_audio_filter(has_music, duration, music_vol):
         voice + "[va];"
         f"[2:a]volume={music_vol},afade=t=in:st=0:d=1.5,"
         f"afade=t=out:st={fade_out:.2f}:d=2[mus];"
-        # normalize=0 keeps the voice at full level instead of amix halving both inputs
-        "[va][mus]amix=inputs=2:duration=first:normalize=0[aout]"
+        # duration=longest so the music plays the FULL video length (incl. the tail
+        # after the voice ends) — duration=first cut the audio off at the voice length,
+        # leaving a silent tail and an effectively inaudible bed. normalize=0 keeps the
+        # voice at full level instead of amix halving both inputs. The outer -t caps it.
+        "[va][mus]amix=inputs=2:duration=longest:normalize=0[aout]"
     )
 
 
@@ -146,7 +149,7 @@ def main():
                          "precedence over --music-dir when it exists.")
     ap.add_argument("--music-dir", default="assets/music",
                     help="Folder of background-music tracks (optional; picks one by date).")
-    ap.add_argument("--music-volume", type=float, default=0.15,
+    ap.add_argument("--music-volume", type=float, default=0.30,
                     help="Background music level, 0..1 (voice stays at full).")
     args = ap.parse_args()
 

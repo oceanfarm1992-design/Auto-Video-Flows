@@ -30,6 +30,7 @@ import argparse
 import datetime
 import json
 import os
+import random
 import sys
 
 import requests
@@ -70,7 +71,7 @@ def fetch_pexels(query, dest, want_portrait, min_height):
         "query": query,
         "orientation": "portrait" if want_portrait else "landscape",
         "size": "medium",
-        "per_page": 20,
+        "per_page": 40,
     }
     r = requests.get(PEXELS_SEARCH, params=params,
                      headers={"Authorization": key, **HEADERS}, timeout=60)
@@ -78,7 +79,8 @@ def fetch_pexels(query, dest, want_portrait, min_height):
     videos = r.json().get("videos", [])
     if not videos:
         return None
-    video = _rotate(videos) or videos[0]
+    # pick a RANDOM clip from the results so repeated runs don't reuse the same video
+    video = random.choice(videos)
 
     # pick the highest-resolution portrait-ish .mp4 file for this video
     files = [f for f in video.get("video_files", [])
@@ -108,13 +110,13 @@ def fetch_pixabay(query, dest, min_height):
     key = os.environ.get("PIXABAY_API_KEY")
     if not key:
         return None
-    params = {"key": key, "q": query, "per_page": 20, "safesearch": "true"}
+    params = {"key": key, "q": query, "per_page": 40, "safesearch": "true"}
     r = requests.get(PIXABAY_SEARCH, params=params, headers=HEADERS, timeout=60)
     r.raise_for_status()
     hits = r.json().get("hits", [])
     if not hits:
         return None
-    hit = _rotate(hits) or hits[0]
+    hit = random.choice(hits)
 
     # Pixabay gives named renditions; prefer the largest that still meets min_height.
     renditions = hit.get("videos", {})
@@ -266,7 +268,8 @@ def choose_query(args, cfg, picked_id):
         for text in cfg.get("gutenberg_texts", []):
             if text.get("id") == picked_id and text.get("footage_query"):
                 return text["footage_query"]
-    return _rotate(cfg.get("footage", {}).get("fallback_queries")) or "calm nature cinematic"
+    fq = cfg.get("footage", {}).get("fallback_queries")
+    return random.choice(fq) if fq else "calm nature cinematic"
 
 
 def main():
