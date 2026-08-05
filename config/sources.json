@@ -39,16 +39,24 @@
   ],
 
   "footage": {
-    "_comment": "Footage is fetched by scripts/fetch_footage.py, which tries sources in this order and uses whichever API keys are present. Stock sources are keyword-matched to the quote's footage_query so the clip is RELEVANT; archive.org is the always-free fallback. prelinger was removed — its 1950s ephemeral films were off-tone and low-res.",
-    "source_order": ["pexels", "pixabay", "archive"],
+    "_comment": "Footage is fetched by scripts/fetch_footage.py, which tries sources in this order using whichever API keys are present. Stock (pexels/pixabay) is keyword-matched to the quote's footage_query so the clip is RELEVANT. 'animate' is a generated cinematic gradient (scripts/generate_animation.py) used when no suitable stock clip is found — it never fails and is always on-tone, so it replaces the old habit of dropping in random/irrelevant footage. 'archive' (NASA public domain) is still available but not in the default order; add it back here if you want it tried before the animation.",
+    "source_order": ["pexels", "pixabay", "animate"],
     "orientation": "portrait",
     "min_height": 720,
+    "animation_seconds": 14,
     "fallback_queries": [
       "calm nature landscape cinematic",
       "night sky stars timelapse",
       "clouds slow motion sky",
       "forest sunlight peaceful",
       "ocean horizon calm"
+    ],
+    "animation_palettes": [
+      ["0d1b2a", "1b263b", "415a77"],
+      ["1a1423", "3d2c2e", "6b4226"],
+      ["0b1d16", "14342b", "2d6a4f"],
+      ["10002b", "240046", "5a189a"],
+      ["1c2431", "2c3e50", "557a95"]
     ]
   },
 

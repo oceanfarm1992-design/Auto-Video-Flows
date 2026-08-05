@@ -20,7 +20,7 @@ Each day a GitHub Actions cron job runs these stages in order:
 | Stage | Script | What it does |
 |-------|--------|--------------|
 | 1 | `fetch_script_text.py` | Picks a public-domain excerpt (Marcus Aurelius / Emerson / Seneca) from `config/sources.json`, rotating by date. Wraps it with a short spoken intro + reflective outro so the narration runs ~40s (not an abrupt ~20s). Also writes per-platform caption files. |
-| 2 | `fetch_footage.py` | Fetches a **theme-matched, HD** B-roll clip. Tries **Pexels → Pixabay → archive.org (NASA)**, using whichever API keys are present, searching by the quote's `footage_query` so the footage is relevant. |
+| 2 | `fetch_footage.py` | Fetches a **theme-matched, HD** B-roll clip. Tries **Pexels → Pixabay**, searching by the quote's `footage_query` so the footage is relevant. If no suitable clip is found, falls back to `generate_animation.py` — a **generated cinematic gradient** (always on-tone, never random). archive.org NASA footage is still available but off by default. |
 | 3 | `generate_tts.py` | Generates the voiceover with **Piper TTS** (offline, no API key), default voice `en_US-ryan-high`, slowed slightly for a calmer read. Falls back to `espeak-ng` if Piper fails. |
 | 4 | `generate_captions.py` | Builds a burned-in `.srt` from the known script text + measured audio duration (no transcription needed). |
 | 5 | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in animated captions, a hook title card, and an end-card CTA; mux with the voiceover. |
@@ -55,9 +55,12 @@ nothing to touch daily.
 
 - **Text:** Project Gutenberg public-domain excerpts, curated in `config/sources.json`.
 - **Video:** theme-matched HD stock from **Pexels** or **Pixabay** (free licenses, free
-  commercial use), searched by each quote's `footage_query`. Falls back to archive.org
-  **NASA** public-domain footage when no stock API key is set. The `prelinger` collection
-  was removed — its 1950s ephemeral films were off-tone and low-resolution.
+  commercial use), searched by each quote's `footage_query`. When no suitable stock clip
+  is found, `generate_animation.py` renders an on-tone **animated gradient** background
+  (ffmpeg, no assets/network) instead of dropping in a random/irrelevant clip — this is
+  the guaranteed fallback and never fails. archive.org **NASA** public-domain footage is
+  still available (`--source archive`, or add `"archive"` back to `footage.source_order`)
+  but is off by default. The `prelinger` collection was removed (off-tone, low-res).
 - **Voice:** Piper TTS — open-source, offline, CI-friendly.
 - **No copyrighted material is downloaded or reused.** (Pexels/Pixabay clips are free-to-
   use under their own licenses; NASA footage is public domain.)
@@ -103,7 +106,8 @@ pip install -r requirements.txt
 sudo apt-get install -y ffmpeg fonts-dejavu-core espeak-ng
 
 python scripts/fetch_script_text.py
-python scripts/fetch_footage.py          # PEXELS_API_KEY/PIXABAY_API_KEY optional; falls back to archive.org
+python scripts/fetch_footage.py          # PEXELS_API_KEY/PIXABAY_API_KEY optional; falls back to a generated animation
+# python scripts/fetch_footage.py --source animate   # force the generated gradient background
 python scripts/generate_tts.py          # or: --fallback espeak
 python scripts/generate_captions.py
 python scripts/assemble_video.py

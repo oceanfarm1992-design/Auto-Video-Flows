@@ -224,15 +224,45 @@ def fetch_archive(query, dest, cfg):
     return None
 
 
+# --------------------------------------------------------------------- generated animation
+def fetch_animate(query, dest, cfg, seed_str):
+    """Render an on-tone animated gradient background. This never needs the network and
+    can't come back empty, so it's the guaranteed last-resort source — far better than
+    dropping a random, irrelevant clip in when stock search finds nothing."""
+    from generate_animation import render_animation, pick_palette  # local: only when used
+
+    video = cfg.get("video", {})
+    width = video.get("width", 1080)
+    height = video.get("height", 1920)
+    # short seamless loop; the assemble stage loops it to the voiceover length
+    duration = cfg.get("footage", {}).get("animation_seconds", 14)
+    palette = pick_palette(cfg, seed_str)
+    render_animation(dest, width, height, duration, palette,
+                     seed=sum(ord(c) for c in seed_str) % 256)
+    return {
+        "source": "animate",
+        "query": query,
+        "palette": palette,
+        "resolution": f"{width}x{height}",
+        "license": "Generated animation (ffmpeg gradient) — original content",
+    }
+
+
 # --------------------------------------------------------------------------- driver
-def choose_query(args, cfg):
-    if args.query:
-        return args.query
-    # tie the footage theme to the quote that was picked in stage 1
+def read_script_id(args):
+    """The id of the quote picked in stage 1 (used for footage_query + animation seed)."""
     script_path = os.path.join(args.out, "script.json")
     if os.path.exists(script_path):
         with open(script_path, encoding="utf-8") as f:
-            picked_id = json.load(f).get("id")
+            return json.load(f).get("id", "") or ""
+    return ""
+
+
+def choose_query(args, cfg, picked_id):
+    if args.query:
+        return args.query
+    # tie the footage theme to the quote that was picked in stage 1
+    if picked_id:
         for text in cfg.get("gutenberg_texts", []):
             if text.get("id") == picked_id and text.get("footage_query"):
                 return text["footage_query"]
@@ -245,7 +275,7 @@ def main():
     ap.add_argument("--out", default="build")
     ap.add_argument("--query", default=None, help="Override the footage search keyword.")
     ap.add_argument("--source", default=None,
-                    choices=["pexels", "pixabay", "archive"],
+                    choices=["pexels", "pixabay", "archive", "animate"],
                     help="Force a single source instead of the configured order.")
     args = ap.parse_args()
 
@@ -256,9 +286,10 @@ def main():
     want_portrait = fcfg.get("orientation", "portrait") == "portrait"
     min_height = fcfg.get("min_height", 720)
     order = [args.source] if args.source else fcfg.get(
-        "source_order", ["pexels", "pixabay", "archive"])
+        "source_order", ["pexels", "pixabay", "animate"])
 
-    query = choose_query(args, cfg)
+    picked_id = read_script_id(args)
+    query = choose_query(args, cfg, picked_id)
     os.makedirs(args.out, exist_ok=True)
     dest = os.path.join(args.out, "footage.mp4")
     print(f"[fetch_footage] query={query!r} sources={order}")
@@ -272,6 +303,8 @@ def main():
                 info = fetch_pixabay(query, dest, min_height)
             elif source == "archive":
                 info = fetch_archive(query, dest, cfg)
+            elif source == "animate":
+                info = fetch_animate(query, dest, cfg, picked_id or query)
         except Exception as e:  # noqa: BLE001 — try the next source, don't fail the run
             print(f"[fetch_footage] {source} failed: {type(e).__name__}: {e}",
                   file=sys.stderr)
