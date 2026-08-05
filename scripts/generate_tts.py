@@ -72,10 +72,10 @@ def ensure_voice(voice, voices_dir):
     return onnx_path
 
 
-def run_piper(text, onnx_path, out_wav, length_scale=1.08, sentence_silence=0.45):
-    # --length_scale > 1 slows delivery slightly for a calmer, more deliberate read
-    # (the default sounds rushed for reflective content); --sentence_silence inserts a
-    # pause between sentences so the intro/quote/outro don't run together.
+def run_piper(text, onnx_path, out_wav, length_scale=1.0, sentence_silence=0.3):
+    # length_scale=1.0 keeps the voice's natural cadence (slowing it down introduced a
+    # slightly robotic stretch artifact); --sentence_silence adds a short pause between
+    # sentences so the intro/quote/outro don't run together.
     cmd = [
         "piper", "--model", onnx_path, "--output_file", out_wav,
         "--length_scale", str(length_scale),
@@ -105,9 +105,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", default="build/script.txt")
     ap.add_argument("--out", default="build/voice.wav")
-    # ryan-high is a "high" quality Piper model — noticeably fuller/less flat than the
-    # "medium" voices, which matters for a spoken-word reflection.
-    ap.add_argument("--voice", default="en_US-ryan-high")
+    # amy-medium is a warm, natural-sounding female voice and comes out cleaner than
+    # ryan-high (which had a breathy, slightly "radio" artifact between words). The
+    # assemble stage additionally denoises + normalizes the result.
+    ap.add_argument("--voice", default="en_US-amy-medium")
     ap.add_argument("--voices-dir", default="voices")
     ap.add_argument("--fallback", choices=["espeak"], default=None,
                     help="Skip Piper and use espeak-ng instead.")

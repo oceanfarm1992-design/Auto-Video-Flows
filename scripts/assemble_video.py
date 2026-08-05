@@ -27,6 +27,7 @@ Usage:
         --captions build/captions.srt --script build/script.json --out build/final.mp4
 """
 import argparse
+import datetime
 import json
 import os
 import subprocess
@@ -34,6 +35,40 @@ import sys
 
 FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+
+MUSIC_EXTS = (".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac")
+
+
+def pick_music(music_dir):
+    """Return a background-music file from music_dir, rotated by date, or None if the
+    folder is missing/empty. Music is optional — no file just means no background bed."""
+    if not music_dir or not os.path.isdir(music_dir):
+        return None
+    tracks = sorted(f for f in os.listdir(music_dir)
+                    if f.lower().endswith(MUSIC_EXTS))
+    if not tracks:
+        return None
+    idx = datetime.date.today().timetuple().tm_yday % len(tracks)
+    return os.path.join(music_dir, tracks[idx])
+
+
+def build_audio_filter(has_music, duration, music_vol):
+    """Audio graph: clean up the TTS voice (denoise + high-pass + loudness-normalize),
+    and if a music track is present, duck it low and mix it under the voice.
+
+    afftdn removes the faint hiss/"old radio" noise between words; loudnorm gives a
+    consistent, clear speech level."""
+    voice = "[1:a]afftdn=nr=12,highpass=f=70,loudnorm=I=-16:TP=-1.5:LRA=11"
+    if not has_music:
+        return voice + "[aout]"
+    fade_out = max(0.0, duration - 2.0)
+    return (
+        voice + "[va];"
+        f"[2:a]volume={music_vol},afade=t=in:st=0:d=1.5,"
+        f"afade=t=out:st={fade_out:.2f}:d=2[mus];"
+        # normalize=0 keeps the voice at full level instead of amix halving both inputs
+        "[va][mus]amix=inputs=2:duration=first:normalize=0[aout]"
+    )
 
 
 def ffprobe_duration(path):
@@ -64,10 +99,14 @@ def build_filter_complex(hook, cta, captions_path, duration):
     hook_end = 4.0
     cta_start = max(0.0, duration - 4.0)
 
+    # Alignment=2 is bottom-centre; MarginV is the gap from the bottom, measured in
+    # libass's default 288px canvas (then scaled to the real 1920 height, ~6.67x). So
+    # MarginV=144 (= half of 288) lands the captions in the VERTICAL MIDDLE of the frame.
+    # The old value 280 pushed them ~6.67x past that, jamming them at the very top.
     caption_style = (
         "FontName=DejaVu Sans,Fontsize=16,PrimaryColour=&H00FFFFFF,"
         "OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,"
-        "Alignment=2,MarginV=280"
+        "Alignment=2,MarginV=144"
     )
     # VERIFY: force_style keys are ASS style names (case-sensitive-ish). If captions
     # look unstyled, check the ffmpeg build supports libass (`ffmpeg -filters | grep subtitles`).
@@ -102,6 +141,10 @@ def main():
     ap.add_argument("--script", default="build/script.json")
     ap.add_argument("--config", default="config/sources.json")
     ap.add_argument("--out", default="build/final.mp4")
+    ap.add_argument("--music-dir", default="assets/music",
+                    help="Folder of background-music tracks (optional; picks one by date).")
+    ap.add_argument("--music-volume", type=float, default=0.10,
+                    help="Background music level, 0..1 (voice stays at full).")
     args = ap.parse_args()
 
     with open(args.script, encoding="utf-8") as f:
@@ -117,15 +160,27 @@ def main():
     duration = max(cfg["min_seconds"], min(duration + 0.6, cfg["max_seconds"]))
     print(f"[assemble_video] target duration {duration:.1f}s")
 
-    filter_complex = build_filter_complex(hook, cta, args.captions, duration)
+    music_path = pick_music(args.music_dir)
+    if music_path:
+        print(f"[assemble_video] background music: {music_path}")
+    else:
+        print(f"[assemble_video] no music found in {args.music_dir!r} — voice only")
+
+    video_fc = build_filter_complex(hook, cta, args.captions, duration)
+    audio_fc = build_audio_filter(bool(music_path), duration, args.music_volume)
+    filter_complex = video_fc + ";" + audio_fc
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     cmd = [
         "ffmpeg", "-y",
-        "-stream_loop", "-1", "-i", args.footage,   # loop footage to cover audio
-        "-i", args.audio,
+        "-stream_loop", "-1", "-i", args.footage,   # input 0: loop footage to cover audio
+        "-i", args.audio,                            # input 1: TTS voice
+    ]
+    if music_path:
+        cmd += ["-stream_loop", "-1", "-i", music_path]  # input 2: looped background music
+    cmd += [
         "-filter_complex", filter_complex,
-        "-map", "[vout]", "-map", "1:a",
+        "-map", "[vout]", "-map", "[aout]",
         "-t", f"{duration:.3f}",
         "-c:v", "libx264", "-preset", "medium", "-crf", "20",
         "-pix_fmt", "yuv420p", "-r", "30",

@@ -21,9 +21,9 @@ Each day a GitHub Actions cron job runs these stages in order:
 |-------|--------|--------------|
 | 1 | `fetch_script_text.py` | Picks a public-domain excerpt (Marcus Aurelius / Emerson / Seneca) from `config/sources.json`, rotating by date. Wraps it with a short spoken intro + reflective outro so the narration runs ~40s (not an abrupt ~20s). Also writes per-platform caption files. |
 | 2 | `fetch_footage.py` | Fetches a **theme-matched, HD** B-roll clip. Tries **Pexels → Pixabay**, searching by the quote's `footage_query` so the footage is relevant. If no suitable clip is found, falls back to `generate_animation.py` — a **generated cinematic gradient** (always on-tone, never random). archive.org NASA footage is still available but off by default. |
-| 3 | `generate_tts.py` | Generates the voiceover with **Piper TTS** (offline, no API key), default voice `en_US-ryan-high`, slowed slightly for a calmer read. Falls back to `espeak-ng` if Piper fails. |
+| 3 | `generate_tts.py` | Generates the voiceover with **Piper TTS** (offline, no API key), default voice `en_US-amy-medium` (natural). Falls back to `espeak-ng` if Piper fails. |
 | 4 | `generate_captions.py` | Builds a burned-in `.srt` from the known script text + measured audio duration (no transcription needed). |
-| 5 | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in animated captions, a hook title card, and an end-card CTA; mux with the voiceover. |
+| 5 | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in **centre-screen** captions + a hook title card + end-card CTA; **denoise + loudness-normalize** the voice, and mix in optional **background music** from `assets/music/`. |
 | 6 | `post_sheet.py` | Appends one row (`title \| description \| hashtags \| caption \| video_url \| category`) to the shared Google Sheet. Zapier posts to Instagram / Facebook / YouTube from there. |
 | 7 | workflow step | Appends a row to `logs/history.csv` and commits it back. |
 
