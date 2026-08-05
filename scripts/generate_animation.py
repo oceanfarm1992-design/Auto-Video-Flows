@@ -59,8 +59,10 @@ def render_animation(dest, width, height, duration, palette, seed=0):
         f":x0={width // 4}:y0={height // 4}:x1={width * 3 // 4}:y1={height * 3 // 4}"
         f":speed=0.008:duration={duration}:rate=30:seed={seed}"
     )
-    # soft vignette for depth + very light grain so the gradient doesn't look flat/banded
-    vf = "format=yuv420p,vignette=PI/5,noise=alls=6:allf=t,format=yuv420p"
+    # soft vignette for depth + light STATIC grain to avoid banding. The grain must not
+    # be temporal (no allf=t): per-frame random noise is incompressible and ballooned the
+    # 30s output to ~110MB. Static grain keeps the anti-banding texture at ~1/20th the size.
+    vf = "format=yuv420p,vignette=PI/5,noise=alls=3,format=yuv420p"
 
     cmd = [
         "ffmpeg", "-y",
