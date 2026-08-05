@@ -72,20 +72,29 @@ def ensure_voice(voice, voices_dir):
     return onnx_path
 
 
-def run_piper(text, onnx_path, out_wav):
-    cmd = ["piper", "--model", onnx_path, "--output_file", out_wav]
+def run_piper(text, onnx_path, out_wav, length_scale=1.08, sentence_silence=0.45):
+    # --length_scale > 1 slows delivery slightly for a calmer, more deliberate read
+    # (the default sounds rushed for reflective content); --sentence_silence inserts a
+    # pause between sentences so the intro/quote/outro don't run together.
+    cmd = [
+        "piper", "--model", onnx_path, "--output_file", out_wav,
+        "--length_scale", str(length_scale),
+        "--sentence_silence", str(sentence_silence),
+    ]
     print(f"[generate_tts] running: {' '.join(cmd)}")
-    proc = subprocess.run(cmd, input=text.encode("utf-8"),
-                          capture_output=True)
+    proc = subprocess.run(cmd, input=text.encode("utf-8"), capture_output=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
         raise SystemExit(f"piper failed with code {proc.returncode}")
 
 
 def run_espeak(text, out_wav):
-    # espeak-ng outputs a WAV directly. -s words/min, -w write to file.
-    cmd = ["espeak-ng", "-s", "150", "-w", out_wav, text]
-    print(f"[generate_tts] fallback espeak-ng")
+    # espeak-ng outputs a WAV directly. -s words/min (slower = less robotic/rushed),
+    # -p pitch, -g word gap, -v voice. This is a last-resort fallback; quality is
+    # still well below Piper, but pacing at least matches the reflective tone.
+    cmd = ["espeak-ng", "-v", "en-us+m3", "-s", "135", "-p", "45", "-g", "6",
+           "-w", out_wav, text]
+    print("[generate_tts] fallback espeak-ng")
     proc = subprocess.run(cmd, capture_output=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
@@ -96,7 +105,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", default="build/script.txt")
     ap.add_argument("--out", default="build/voice.wav")
-    ap.add_argument("--voice", default="en_US-lessac-medium")
+    # ryan-high is a "high" quality Piper model — noticeably fuller/less flat than the
+    # "medium" voices, which matters for a spoken-word reflection.
+    ap.add_argument("--voice", default="en_US-ryan-high")
     ap.add_argument("--voices-dir", default="voices")
     ap.add_argument("--fallback", choices=["espeak"], default=None,
                     help="Skip Piper and use espeak-ng instead.")

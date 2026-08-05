@@ -1,28 +1,18 @@
 name: daily-short
 
-# Two schedules in one file. Jobs are gated on which cron fired (github.event.schedule)
-# so the daily pipeline and the weekly Meta-token refresh don't step on each other.
-# You can also trigger either job manually with the "job" input.
+# Single daily schedule: build the short and hand it off for posting by appending a
+# row to the shared Google Sheet that Zapier watches. No token-refresh job is needed
+# anymore — posting auth lives in Zapier, not in this repo.
 on:
   schedule:
     - cron: "0 14 * * *"   # daily 14:00 UTC -> build + post
-    - cron: "0 6 * * 1"    # Mondays 06:00 UTC -> refresh Meta long-lived token
   workflow_dispatch:
-    inputs:
-      job:
-        description: "Which job to run manually"
-        type: choice
-        options: [build_and_post, refresh_meta_token]
-        default: build_and_post
 
 permissions:
   contents: write          # commit logs/history.csv and create the release asset
 
 jobs:
   build_and_post:
-    if: >-
-      github.event_name == 'workflow_dispatch' && inputs.job == 'build_and_post'
-      || github.event.schedule == '0 14 * * *'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -43,8 +33,11 @@ jobs:
       - name: Fetch script text
         run: python scripts/fetch_script_text.py
 
-      - name: Fetch archive.org footage
-        run: python scripts/fetch_archive_footage.py
+      - name: Fetch footage (Pexels / Pixabay / archive.org)
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: python scripts/fetch_footage.py
 
       - name: Generate TTS voiceover
         # If Piper install/model download misbehaves, fall back to espeak-ng so the
@@ -59,9 +52,9 @@ jobs:
       - name: Assemble video
         run: python scripts/assemble_video.py
 
-      # ---- make the video publicly fetchable (Instagram Reels needs a public URL) ----
+      # ---- make the video publicly fetchable (Zapier / Instagram Reels needs a public URL) ----
       # NOTE: release assets are only PUBLICLY reachable if this repo is PUBLIC.
-      # For a private repo, host final.mp4 elsewhere and set VIDEO_URL accordingly.
+      # For a private repo, host final.mp4 elsewhere and set the URL accordingly.
       - name: Publish video as release asset
         id: publish_asset
         env:
@@ -74,44 +67,23 @@ jobs:
           echo "video_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Public video URL: $URL"
 
-      # ---- posting (continue-on-error so one platform failing doesn't block others) ----
-      - name: Post to Meta (Instagram Reels + Facebook)
-        id: post_meta
+      # ---- posting: append one row to the shared Google Sheet; Zapier does the rest ----
+      # One Zap per platform (Instagram / Facebook / YouTube) watches this sheet with a
+      # free "New Spreadsheet Row" trigger and posts via Zapier's own connections. No
+      # platform tokens are stored in this repo. TikTok is intentionally omitted (app
+      # not audited; no free Zapier TikTok posting integration).
+      - name: Post via Google Sheet (Zapier)
+        id: post_sheet
         continue-on-error: true
         env:
-          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-          META_IG_USER_ID: ${{ secrets.META_IG_USER_ID }}
-          META_PAGE_ID: ${{ secrets.META_PAGE_ID }}
+          SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+          SHEET_WEBHOOK_TOKEN: ${{ secrets.SHEET_WEBHOOK_TOKEN }}
         run: |
-          python scripts/post_meta.py \
-            --video build/final.mp4 \
+          python scripts/post_sheet.py \
             --video-url "${{ steps.publish_asset.outputs.video_url }}" \
-            --caption-file build/caption_meta.txt
-
-      - name: Post to TikTok (draft / SELF_ONLY)
-        id: post_tiktok
-        continue-on-error: true
-        env:
-          TIKTOK_CLIENT_KEY: ${{ secrets.TIKTOK_CLIENT_KEY }}
-          TIKTOK_CLIENT_SECRET: ${{ secrets.TIKTOK_CLIENT_SECRET }}
-          TIKTOK_REFRESH_TOKEN: ${{ secrets.TIKTOK_REFRESH_TOKEN }}
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          python scripts/post_tiktok.py \
-            --video build/final.mp4 --title-file build/caption_tiktok.txt
-
-      - name: Post to YouTube Shorts
-        id: post_youtube
-        continue-on-error: true
-        env:
-          YOUTUBE_CLIENT_ID: ${{ secrets.YOUTUBE_CLIENT_ID }}
-          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
-          YOUTUBE_REFRESH_TOKEN: ${{ secrets.YOUTUBE_REFRESH_TOKEN }}
-        run: |
-          python scripts/post_youtube.py \
-            --video build/final.mp4 \
-            --title-file build/yt_title.txt \
-            --desc-file build/caption_youtube.txt
+            --script build/script.json \
+            --caption-file build/caption_meta.txt \
+            --config config/sources.json
 
       # ---- log results back to the repo ----
       - name: Append run to history log
@@ -120,28 +92,9 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
           IDENT=$(python -c "import json;print(json.load(open('build/footage.json'))['identifier'])" 2>/dev/null || echo "unknown")
-          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},${{ steps.post_meta.outcome }},${{ steps.post_tiktok.outcome }},${{ steps.post_youtube.outcome }}" >> logs/history.csv
+          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},${{ steps.post_sheet.outcome }}" >> logs/history.csv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/history.csv
           git commit -m "log: daily run ${DATE}" || echo "nothing to commit"
           git push
-
-  refresh_meta_token:
-    if: >-
-      github.event_name == 'workflow_dispatch' && inputs.job == 'refresh_meta_token'
-      || github.event.schedule == '0 6 * * 1'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install requests PyNaCl
-      - name: Refresh + persist Meta long-lived token
-        env:
-          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
-          META_APP_ID: ${{ secrets.META_APP_ID }}
-          META_APP_SECRET: ${{ secrets.META_APP_SECRET }}
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: python scripts/refresh_meta_token.py

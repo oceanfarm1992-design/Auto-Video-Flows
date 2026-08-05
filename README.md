@@ -2,8 +2,16 @@
 
 A **zero-cost, fully automated daily pipeline** that builds one ~30-50s vertical (9:16)
 motivational short from **public-domain sources** and posts it to **Instagram Reels,
-Facebook, TikTok, and YouTube Shorts**. Everything runs on the **GitHub Actions free
+Facebook, and YouTube Shorts**. Everything runs on the **GitHub Actions free
 tier** — no paid infrastructure, no YouTube ripping.
+
+Posting is handed off to **Zapier via a shared Google Sheet** rather than calling each
+platform's API with tokens directly. The pipeline appends one row per video to a Google
+Sheet; a free Zapier "New Spreadsheet Row" trigger (one Zap per platform) picks it up and
+posts using Zapier's own already-verified connections. This sidesteps the token churn that
+kept breaking direct posting (Meta long-lived token re-exchange, TikTok's rotating refresh
+token, YouTube OAuth verification). **TikTok is not posted** — its app isn't audited and
+there's no free Zapier TikTok posting integration.
 
 ## How it works
 
@@ -11,27 +19,48 @@ Each day a GitHub Actions cron job runs these stages in order:
 
 | Stage | Script | What it does |
 |-------|--------|--------------|
-| 1 | `fetch_script_text.py` | Picks a public-domain excerpt (Marcus Aurelius / Emerson / Seneca) from `config/sources.json`, rotating by date. Also writes per-platform caption files. |
-| 2 | `fetch_archive_footage.py` | Pulls a B-roll clip from an **allowlisted** archive.org collection (`prelinger`, `nasa`) using the documented advancedsearch + metadata + download APIs. |
-| 3 | `generate_tts.py` | Generates the voiceover with **Piper TTS** (offline, no API key). Falls back to `espeak-ng` if Piper fails. |
+| 1 | `fetch_script_text.py` | Picks a public-domain excerpt (Marcus Aurelius / Emerson / Seneca) from `config/sources.json`, rotating by date. Wraps it with a short spoken intro + reflective outro so the narration runs ~40s (not an abrupt ~20s). Also writes per-platform caption files. |
+| 2 | `fetch_footage.py` | Fetches a **theme-matched, HD** B-roll clip. Tries **Pexels → Pixabay → archive.org (NASA)**, using whichever API keys are present, searching by the quote's `footage_query` so the footage is relevant. |
+| 3 | `generate_tts.py` | Generates the voiceover with **Piper TTS** (offline, no API key), default voice `en_US-ryan-high`, slowed slightly for a calmer read. Falls back to `espeak-ng` if Piper fails. |
 | 4 | `generate_captions.py` | Builds a burned-in `.srt` from the known script text + measured audio duration (no transcription needed). |
 | 5 | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in animated captions, a hook title card, and an end-card CTA; mux with the voiceover. |
-| 6 | `post_meta.py` / `post_tiktok.py` / `post_youtube.py` | Publish to all four destinations. |
+| 6 | `post_sheet.py` | Appends one row (`title \| description \| hashtags \| caption \| video_url \| category`) to the shared Google Sheet. Zapier posts to Instagram / Facebook / YouTube from there. |
 | 7 | workflow step | Appends a row to `logs/history.csv` and commits it back. |
 
-The workflow is `.github/workflows/daily-short.yml`. It has two schedules:
-- **daily 14:00 UTC** → `build_and_post`
-- **Mondays 06:00 UTC** → `refresh_meta_token` (keeps the Meta long-lived token fresh)
+The workflow is `.github/workflows/daily-short.yml`. It runs **daily at 14:00 UTC**
+(`build_and_post`) and is also runnable on demand via **workflow_dispatch**. There is no
+longer a token-refresh job — posting auth lives in Zapier, not in this repo.
 
-Both jobs are also runnable on demand via **workflow_dispatch**.
+> The direct-API posters (`post_meta.py`, `post_tiktok.py`, `post_youtube.py`,
+> `refresh_meta_token.py`) are kept in `scripts/` for reference but are **no longer wired
+> into the workflow**. Re-wire `post_tiktok.py` once the TikTok app passes audit.
 
-## Content sourcing (public domain only)
+### One-time setup (no Google Cloud needed)
+
+After this ~15-minute setup the pipeline is **fully autonomous** — no tokens to refresh,
+nothing to touch daily.
+
+1. Create a Google Sheet with a header row: `title | description | hashtags | caption | video_url | category`.
+2. **Deploy the sheet web app (no Cloud project, no key file):** in that sheet, open
+   **Extensions → Apps Script**, paste `scripts/sheet_webhook.gs`, then
+   **Deploy → New deployment → Web app** (Execute as: *Me*, Who has access: *Anyone*).
+   Copy the resulting `…/exec` URL into the `SHEET_WEBHOOK_URL` secret. Optionally set a
+   random token in both the script and the `SHEET_WEBHOOK_TOKEN` secret.
+3. In Zapier, create one Zap per platform: trigger **Google Sheets → New Spreadsheet Row**
+   on this sheet; action **Instagram / Facebook / YouTube → post video**, mapping the
+   `video_url` and `caption` columns. Zapier's free tier (~100 tasks/month) covers a
+   once-daily post to three platforms (~90/month).
+
+## Content sourcing
 
 - **Text:** Project Gutenberg public-domain excerpts, curated in `config/sources.json`.
-- **Video:** archive.org `prelinger` and `nasa` collections (verified public domain),
-  fetched via `https://archive.org/advancedsearch.php` + `https://archive.org/metadata/<id>`.
+- **Video:** theme-matched HD stock from **Pexels** or **Pixabay** (free licenses, free
+  commercial use), searched by each quote's `footage_query`. Falls back to archive.org
+  **NASA** public-domain footage when no stock API key is set. The `prelinger` collection
+  was removed — its 1950s ephemeral films were off-tone and low-resolution.
 - **Voice:** Piper TTS — open-source, offline, CI-friendly.
-- **No copyrighted material is downloaded or reused.**
+- **No copyrighted material is downloaded or reused.** (Pexels/Pixabay clips are free-to-
+  use under their own licenses; NASA footage is public domain.)
 
 ## Required GitHub Secrets
 
@@ -39,44 +68,31 @@ Create these under **Settings → Secrets and variables → Actions**:
 
 | Secret | Used by | Purpose |
 |--------|---------|---------|
-| `META_ACCESS_TOKEN` | Meta post + refresh | Long-lived access token (auto-refreshed weekly). |
-| `META_IG_USER_ID` | `post_meta.py` | Instagram business account user id. |
-| `META_PAGE_ID` | `post_meta.py` | Facebook Page id. |
-| `META_APP_ID` | `refresh_meta_token.py` | Meta app id (token exchange). |
-| `META_APP_SECRET` | `refresh_meta_token.py` | Meta app secret (token exchange). |
-| `TIKTOK_CLIENT_KEY` | `post_tiktok.py` | TikTok app client key. |
-| `TIKTOK_CLIENT_SECRET` | `post_tiktok.py` | TikTok app client secret. |
-| `TIKTOK_REFRESH_TOKEN` | `post_tiktok.py` | Rotated + rewritten on **every** run. |
-| `YOUTUBE_CLIENT_ID` | `post_youtube.py` | Google OAuth client id. |
-| `YOUTUBE_CLIENT_SECRET` | `post_youtube.py` | Google OAuth client secret. |
-| `YOUTUBE_REFRESH_TOKEN` | `post_youtube.py` | Google OAuth refresh token (long-lived). |
-| `GH_PAT` | tiktok / meta refresh | PAT with **Secrets: write** so scripts can rewrite rotated tokens. |
+| `SHEET_WEBHOOK_URL` | `post_sheet.py` | Apps Script web app URL (…/exec) that appends the row to the sheet. See `scripts/sheet_webhook.gs`. No Google Cloud needed. |
+| `SHEET_WEBHOOK_TOKEN` | `post_sheet.py` | *Optional.* Shared secret; must match the token in `sheet_webhook.gs` so only your pipeline can write. |
+| `PEXELS_API_KEY` | `fetch_footage.py` | *Optional.* Free key from https://www.pexels.com/api/ for HD theme-matched footage (tried first). |
+| `PIXABAY_API_KEY` | `fetch_footage.py` | *Optional.* Free key from https://pixabay.com/api/docs/ (tried second). |
+
+Footage degrades gracefully: with **no** stock key set, `fetch_footage.py` falls back to
+free archive.org NASA footage automatically. Set at least one stock key for the best
+quality + relevance.
 
 `GITHUB_TOKEN` (built-in) is used to create the release asset and commit the log — no
-setup needed.
+setup needed. The old per-platform token secrets (`META_*`, `TIKTOK_*`, `YOUTUBE_*`,
+`GH_PAT`) are **no longer used** and can be deleted once you've confirmed the Zapier path
+works.
 
-## Platform auth notes
+## Posting notes
 
-### Meta (Instagram Reels + Facebook)
-- Instagram Reels publishing is a **2-step container flow** and **requires a public
-  https video URL** — Meta fetches the file itself. The workflow uploads `final.mp4`
-  as a GitHub **Release asset** and passes its public download URL.
-  **This only works if the repo is PUBLIC.** For a private repo, host the mp4 elsewhere.
-- Facebook Page video is uploaded directly (multipart), no public URL needed.
-- `refresh_meta_token.py` re-exchanges the long-lived token weekly (60-day lifetime)
-  and writes it back to `META_ACCESS_TOKEN` via the GitHub API.
-
-### TikTok
-- Access tokens expire in ~24h and refresh tokens **rotate on each use**, so
-  `post_tiktok.py` refreshes first, **immediately persists the new refresh token** back
-  to `TIKTOK_REFRESH_TOKEN`, then uploads.
-- **Until the TikTok app passes audit**, posts are `privacy_level = SELF_ONLY` (visible
-  only to you). You must change visibility manually in the TikTok app until approved.
-
-### YouTube
-- OAuth refresh-token flow; a fresh access token is minted each run (nothing written back).
-- Discloses AI/synthetic assembly via `status.containsSyntheticMedia = true`
-  (the Data API field added 2024-10-30).
+- **Public video URL still required.** Zapier's Instagram/Facebook/YouTube actions post
+  from the `video_url` column, so the workflow still uploads `final.mp4` as a GitHub
+  **Release asset** and writes that public URL into the sheet row. **This only works if
+  the repo is PUBLIC**; for a private repo, host the mp4 elsewhere and set the URL there.
+- **No tokens in the repo.** All platform authentication now lives inside the Zaps
+  (Zapier's own connections), which is why the token-refresh job and all `META_*` /
+  `TIKTOK_*` / `YOUTUBE_*` secrets are gone.
+- **TikTok** is not posted — its app isn't audited and Zapier has no free TikTok
+  content-posting integration. `scripts/post_tiktok.py` is retained for when that changes.
 
 ## Running / debugging locally
 
@@ -87,22 +103,23 @@ pip install -r requirements.txt
 sudo apt-get install -y ffmpeg fonts-dejavu-core espeak-ng
 
 python scripts/fetch_script_text.py
-python scripts/fetch_archive_footage.py
+python scripts/fetch_footage.py          # PEXELS_API_KEY/PIXABAY_API_KEY optional; falls back to archive.org
 python scripts/generate_tts.py          # or: --fallback espeak
 python scripts/generate_captions.py
 python scripts/assemble_video.py
 # -> build/final.mp4
 ```
 
-The posting scripts read credentials from env vars; export the relevant ones and add
-`--no-write` (TikTok) to avoid touching real secrets while testing.
+Posting now goes through `post_sheet.py` → Apps Script web app → Google Sheet → Zapier;
+set `SHEET_WEBHOOK_URL` to test it. The old direct-API posters are unwired (see note above).
 
 ## Limitations / things to verify
 
-- **Repo must be public** for the Instagram Reels public-URL fetch to work.
-- **TikTok is draft/SELF_ONLY** until the app is audited.
-- Several exact API version strings and CLI flags are marked with `# VERIFY:` comments
-  in the scripts (Graph API version, Piper CLI flags, ffmpeg font paths, YouTube
-  category id / synthetic-media field). Check those before relying on production posting.
+- **Repo must be public** for the release-asset public-URL (which Zapier posts from) to work.
+- **TikTok is not posted** — its app isn't audited and Zapier has no free TikTok posting
+  integration. `scripts/post_tiktok.py` is retained for when that changes.
+- CLI flags / paths marked with `# VERIFY:` comments (Piper CLI flags such as
+  `--length_scale`/`--sentence_silence`, ffmpeg font paths) should be confirmed against the
+  versions actually installed on the runner.
 - The pipeline is intentionally simple (one JSON config, no framework) — it's a personal
   hobby pipeline, not enterprise software.

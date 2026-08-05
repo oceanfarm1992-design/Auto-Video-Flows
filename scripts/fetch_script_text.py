@@ -43,6 +43,22 @@ def make_hook(item):
     return f"{item['author'].upper()} ON STAYING STRONG"
 
 
+def compose_narration(item):
+    """Build the spoken narration.
+
+    The raw excerpt alone is only ~50-70 words (~20s of speech), which made the
+    voiceover feel abrupt and left a silent tail once the video was padded to its
+    minimum length. We wrap the quote with a short spoken intro and a reflective
+    outro (generic lines, not copyrighted) so the narration runs ~35-45s, has a
+    clear beginning/middle/end, and gives the listener a beat to absorb the quote."""
+    quote = item["text"].strip()
+    author = item["author"]
+    intro = "Take a breath, and sit with this thought for a moment."
+    outro = (f"Those were the words of {author}. "
+             "Let them guide your day. Follow for a new reflection tomorrow.")
+    return f"{intro}\n\n{quote}\n\n{outro}"
+
+
 def write_platform_captions(item, config, out_dir):
     """Emit the caption/title text files the posting scripts read."""
     hashtags = config.get("hashtags", {})
@@ -84,18 +100,21 @@ def main():
 
     item = flat[idx]
     item["hook"] = make_hook(item)
+    # `text` stays the raw quote (used for captions/social copy); `narration` is the
+    # longer spoken version the TTS and burned-in captions are built from.
+    item["narration"] = compose_narration(item)
 
     os.makedirs(args.out, exist_ok=True)
     with open(os.path.join(args.out, "script.json"), "w", encoding="utf-8") as f:
         json.dump(item, f, indent=2, ensure_ascii=False)
     with open(os.path.join(args.out, "script.txt"), "w", encoding="utf-8") as f:
-        f.write(item["text"])
+        f.write(item["narration"])
 
     write_platform_captions(item, config, args.out)
 
-    words = len(item["text"].split())
+    words = len(item["narration"].split())
     print(f"[fetch_script_text] picked index {idx}/{len(flat)}: "
-          f"{item['title']} by {item['author']} ({words} words)")
+          f"{item['title']} by {item['author']} ({words} narration words)")
 
 
 if __name__ == "__main__":
