@@ -23,7 +23,8 @@ Each day a GitHub Actions cron job runs these stages in order:
 | 2 | `fetch_footage.py` | Fetches a **theme-matched, HD** B-roll clip. Tries **Pexels → Pixabay**, searching by the quote's `footage_query` so the footage is relevant. If no suitable clip is found, falls back to `generate_animation.py` — a **generated cinematic gradient** (always on-tone, never random). archive.org NASA footage is still available but off by default. |
 | 3 | `generate_tts.py` | Generates the voiceover with **Piper TTS** (offline, no API key), default voice `en_US-amy-medium` (natural). Falls back to `espeak-ng` if Piper fails. |
 | 4 | `generate_captions.py` | Builds a burned-in `.srt` from the known script text + measured audio duration (no transcription needed). |
-| 5 | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in **centre-screen** captions + a hook title card + end-card CTA; **denoise + loudness-normalize** the voice, and mix in optional **background music** from `assets/music/`. |
+| 5a | `generate_music.py` | Synthesizes a soft **ambient music pad** with ffmpeg (`build/music.mp3`) — no assets needed. Skipped in favour of real tracks if you drop any in `assets/music/`. |
+| 5b | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in **centre-screen** captions + a hook title card + end-card CTA; **denoise + loudness-normalize** the voice, and mix the **background music** under it. |
 | 6 | `post_sheet.py` | Appends one row (`title \| description \| hashtags \| caption \| video_url \| category`) to the shared Google Sheet. Zapier posts to Instagram / Facebook / YouTube from there. |
 | 7 | workflow step | Appends a row to `logs/history.csv` and commits it back. |
 
@@ -110,6 +111,7 @@ python scripts/fetch_footage.py          # PEXELS_API_KEY/PIXABAY_API_KEY option
 # python scripts/fetch_footage.py --source animate   # force the generated gradient background
 python scripts/generate_tts.py          # or: --fallback espeak
 python scripts/generate_captions.py
+python scripts/generate_music.py       # ambient pad -> build/music.mp3 (or drop tracks in assets/music/)
 python scripts/assemble_video.py
 # -> build/final.mp4
 ```

@@ -141,9 +141,12 @@ def main():
     ap.add_argument("--script", default="build/script.json")
     ap.add_argument("--config", default="config/sources.json")
     ap.add_argument("--out", default="build/final.mp4")
+    ap.add_argument("--music", default="build/music.mp3",
+                    help="Explicit music file (e.g. the generated ambient pad); takes "
+                         "precedence over --music-dir when it exists.")
     ap.add_argument("--music-dir", default="assets/music",
                     help="Folder of background-music tracks (optional; picks one by date).")
-    ap.add_argument("--music-volume", type=float, default=0.10,
+    ap.add_argument("--music-volume", type=float, default=0.15,
                     help="Background music level, 0..1 (voice stays at full).")
     args = ap.parse_args()
 
@@ -160,7 +163,15 @@ def main():
     duration = max(cfg["min_seconds"], min(duration + 0.6, cfg["max_seconds"]))
     print(f"[assemble_video] target duration {duration:.1f}s")
 
-    music_path = pick_music(args.music_dir)
+    # Prefer a real track dropped in --music-dir; otherwise use the generated ambient
+    # pad (--music, built by generate_music.py). So adding real music later just works.
+    folder_track = pick_music(args.music_dir)
+    if folder_track:
+        music_path = folder_track
+    elif args.music and os.path.exists(args.music):
+        music_path = args.music
+    else:
+        music_path = None
     if music_path:
         print(f"[assemble_video] background music: {music_path}")
     else:

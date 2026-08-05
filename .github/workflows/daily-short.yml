@@ -49,6 +49,9 @@ jobs:
       - name: Generate captions
         run: python scripts/generate_captions.py
 
+      - name: Generate background music (ambient pad)
+        run: python scripts/generate_music.py
+
       - name: Assemble video
         run: python scripts/assemble_video.py
 
