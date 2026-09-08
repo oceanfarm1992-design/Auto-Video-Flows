@@ -138,13 +138,16 @@ def build_filter_complex(clips: list, hook: str, cta: str,
 
     # 4. Burned-in subtitles (word-level SRT)
     subs = captions_path.replace("\\", "/")
+    # ffmpeg's filter_complex top-level parser splits on commas before it
+    # respects the surrounding single-quotes, so commas in force_style must
+    # be escaped as \, and spaces in font names escaped as \ .
     caption_style = (
-        "FontName=DejaVu Sans,Fontsize=17,Bold=1,"
-        "PrimaryColour=&H00FFFFFF,"
-        "OutlineColour=&H00000000,BorderStyle=1,Outline=2,Shadow=1,"
-        "Alignment=2,MarginV=144"
+        "FontName=DejaVu\\ Sans\\,Fontsize=17\\,Bold=1\\,"
+        "PrimaryColour=&H00FFFFFF\\,"
+        "OutlineColour=&H00000000\\,BorderStyle=1\\,Outline=2\\,Shadow=1\\,"
+        "Alignment=2\\,MarginV=144"
     )
-    parts.append(f"[v1]subtitles='{subs}':force_style='{caption_style}'[v2]")
+    parts.append(f"[v1]subtitles='{subs}':force_style={caption_style}[v2]")
 
     # 5. CTA end-card (bottom, last 4 s)
     cta_e  = drawtext_escape(cta)
