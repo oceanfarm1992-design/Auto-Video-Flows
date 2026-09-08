@@ -22,7 +22,7 @@ import sys
 
 import requests
 
-BUFFER_GRAPHQL = "https://graph.buffer.com/"
+BUFFER_GRAPHQL = "https://api.buffer.com/"
 HEADERS = {
     "Content-Type": "application/json",
     "User-Agent": "yt-shorts-generator/1.0",
