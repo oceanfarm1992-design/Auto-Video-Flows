@@ -56,11 +56,11 @@ def gql(token: str, query: str, variables: dict = None) -> dict:
 
 GET_CHANNELS = """
 query {
-  channels {
+  channels(input: {}) {
     id
     service
     name
-    isConnected
+    isDisconnected
   }
 }
 """
@@ -100,7 +100,7 @@ def get_channels(token: str, services: list) -> list:
 
     matched = [
         c for c in all_channels
-        if c.get("service", "").lower() in services and c.get("isConnected")
+        if c.get("service", "").lower() in services and not c.get("isDisconnected")
     ]
     if not matched:
         raise SystemExit(
