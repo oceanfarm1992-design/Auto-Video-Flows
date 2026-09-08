@@ -168,9 +168,19 @@ def generate_anim(query: str, dest: str, duration: float,
 
 # ── Per-segment fetcher ───────────────────────────────────────────────────────
 
+def _clean_query(raw: str) -> str:
+    """Strip GPT instruction hints from footage_query before sending to APIs."""
+    # Remove everything after ' — ' or ' - ' (instruction notes from the prompt)
+    for sep in [" — ", " -- ", " - MUST", " - DIFFERENT", " - COMPLETELY"]:
+        if sep in raw:
+            raw = raw[:raw.index(sep)]
+    # Keep only the first 60 chars (API search queries should be short)
+    return raw.strip()[:60]
+
+
 def fetch_segment(idx: int, segment: dict, duration: float,
                   out_dir: str, cfg: dict, force_source: str | None) -> dict:
-    query = segment.get("footage_query", "cinematic nature")
+    query = _clean_query(segment.get("footage_query", "cinematic nature"))
     want_photo = segment.get("media_type") == "photo" and not force_source
 
     # destination file paths

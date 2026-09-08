@@ -33,10 +33,12 @@ TOPICS_CONFIG = Path("config/topics.json")
 BUILD_DIR = Path("build")
 
 SYSTEM_PROMPT = (
-    "Scriptwriter for a motivational short-form video channel. "
-    "Be concise, vivid, educational. "
-    "Narration style: storytelling, present-tense. "
-    "No clichés ('journey', 'passion', 'hustle'). "
+    "You are a world-class motivational video scriptwriter. "
+    "Your scripts are designed to STOP the scroll and reprogram the viewer's mindset. "
+    "Style rules: short punchy sentences. Use ellipses (...) for dramatic pauses. "
+    "Use ALL CAPS for 1-2 key words per paragraph for emphasis. "
+    "Build a clear emotional arc: SHOCK opening → raw human story → pivotal moment → mind-shifting lesson. "
+    "Be specific with real details (years, numbers, names). No clichés. "
     "Output ONLY valid JSON."
 )
 
@@ -75,26 +77,26 @@ Return ONLY valid JSON with these exact keys (no markdown, no code fences):
 
 {{
   "title": "Hook title max 8 words ALL CAPS",
-  "narration": "Full spoken script 180-220 words. Strong hook opening. Vivid specific story. Lesson at end. No clichés.",
+  "narration": "Spoken script EXACTLY 220-260 words. SHOCK opening sentence. Specific real story with dates and numbers. Short punchy sentences. Ellipses for pauses. ALL CAPS on 1-2 key words per section. End with a mind-shifting lesson the viewer will remember all day.",
   "segments": [
     {{
-      "text": "Exact opening words of narration for segment 1 (hook/intro, ~40 words)",
-      "footage_query": "4-5 word Pexels search query matching this segment visually",
+      "text": "Exact opening words from narration for segment 1 (~50 words). The SHOCK hook.",
+      "footage_query": "dark gritty struggle failure person cinematic — MUST look different from other segments",
       "media_type": "video"
     }},
     {{
-      "text": "Exact words for segment 2 (the story/struggle, ~60 words)",
-      "footage_query": "specific visual query for this moment",
+      "text": "Exact words for segment 2 from narration (~70 words). The raw human story.",
+      "footage_query": "historical archive documentary specific scene — DIFFERENT visual from segment 1",
       "media_type": "video"
     }},
     {{
-      "text": "Exact words for segment 3 (the turning point, ~50 words)",
-      "footage_query": "specific visual query for this moment",
+      "text": "Exact words for segment 3 from narration (~70 words). The pivotal turning point.",
+      "footage_query": "dramatic light breakthrough moment — person achievement triumph — DIFFERENT from above",
       "media_type": "photo"
     }},
     {{
-      "text": "Exact words for segment 4 (lesson/call to action, ~50 words)",
-      "footage_query": "inspirational abstract visual query",
+      "text": "Exact words for segment 4 from narration (~60 words). The mind-shifting lesson.",
+      "footage_query": "abstract nature sky mountains sunrise — COMPLETELY different visual from all above segments",
       "media_type": "video"
     }}
   ],
@@ -124,7 +126,7 @@ def call_openai(client: OpenAI, prompt: str, model: str) -> dict:
             {"role": "user", "content": prompt},
         ],
         temperature=0.85,
-        max_tokens=900,  # gpt-4o-mini is concise; 900 tokens covers full output
+        max_tokens=1200,  # longer narration needs more output tokens
         response_format={"type": "json_object"},
     )
     raw = response.choices[0].message.content

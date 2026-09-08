@@ -25,7 +25,9 @@ from pathlib import Path
 FONT_REGULAR = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
 FONT_BOLD    = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
 MUSIC_EXTS   = (".mp3", ".m4a", ".aac", ".wav", ".ogg", ".flac")
-CROSSFADE_S  = 0.5   # seconds of crossfade between clips
+CROSSFADE_S  = 0.7   # seconds of crossfade between clips
+# Cycle through visually distinct transitions so each cut feels different
+TRANSITIONS  = ["slideleft", "slideright", "wipeleft", "fade"]
 
 
 def pick_music(music_dir: str) -> str | None:
@@ -112,15 +114,16 @@ def build_filter_complex(clips: list, hook: str, cta: str,
     if n == 1:
         parts.append("[pre0]copy[vconcat]")
     else:
-        # chain xfade: pre0 × pre1 → xf0, xf0 × pre2 → xf1, ...
+        # chain xfade with rotating transition types so each cut looks distinct
         offset = 0.0
         for i in range(n - 1):
-            a = f"[xf{i-1}]" if i > 0 else "[pre0]"
-            b = f"[pre{i+1}]"
+            a   = f"[xf{i-1}]" if i > 0 else "[pre0]"
+            b   = f"[pre{i+1}]"
             out = "[vconcat]" if i == n - 2 else f"[xf{i}]"
             offset += clips[i]["duration"] - CROSSFADE_S
+            transition = TRANSITIONS[i % len(TRANSITIONS)]
             parts.append(
-                f"{a}{b}xfade=transition=fade:duration={CROSSFADE_S}:"
+                f"{a}{b}xfade=transition={transition}:duration={CROSSFADE_S}:"
                 f"offset={offset:.3f}{out}"
             )
 

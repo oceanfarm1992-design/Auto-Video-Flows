@@ -53,7 +53,7 @@ def run_openai_tts(text: str, out_wav: str, voice: str = "onyx", model: str = "t
             model=model,
             voice=voice,
             input=text,
-            speed=0.95,  # slight slow-down for clarity
+            speed=1.0,  # natural speed — slowdown makes voice sound flat
         ) as resp:
             resp.stream_to_file(tmp_path)
 
@@ -127,8 +127,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", default="build/script.txt")
     ap.add_argument("--out", default="build/voice.wav")
-    ap.add_argument("--voice", default="onyx",
-                    help="OpenAI voice name (onyx/nova/echo/alloy) or Piper voice ID")
+    ap.add_argument("--voice", default="echo",
+                    help="OpenAI voice name (echo/onyx/nova/fable/alloy) or Piper voice ID")
     ap.add_argument("--voices-dir", default="voices")
     ap.add_argument("--fallback", choices=["piper", "espeak"], default=None,
                     help="Skip OpenAI and use piper or espeak instead.")
