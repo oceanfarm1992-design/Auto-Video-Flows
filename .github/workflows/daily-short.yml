@@ -98,23 +98,25 @@ jobs:
           echo "video_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Public video URL: $URL"
 
-      # ── TikTok: post via Buffer (all 3 daily runs) ───────────────────────────
-      - name: Post to TikTok via Buffer
-        id: post_tiktok
+      # ── TikTok + Facebook: post via Buffer (all 3 daily runs) ──────────────
+      - name: Post to TikTok + Facebook via Buffer
+        id: post_buffer
         if: ${{ inputs.skip_post != true }}
         continue-on-error: true
         env:
           BUFFER_TOKEN: ${{ secrets.BUFFER_TOKEN }}
         run: |
-          python scripts/post_buffer_tiktok.py \
+          python scripts/post_buffer.py \
             --video-url "${{ steps.publish_asset.outputs.video_url }}" \
             --script build/script.json \
-            --caption-file build/caption_tiktok.txt
+            --caption-file build/caption_meta.txt \
+            --services tiktok,facebook
 
-      # ── Instagram / Facebook / YouTube: Zapier — only the 14:00 UTC run ─────
-      # github.event.schedule is the cron string that triggered this run.
-      # workflow_dispatch always runs the sheet step so you can test posting.
-      - name: Post via Google Sheet (Zapier — Instagram/Facebook/YouTube)
+      # ── Instagram + YouTube: Zapier — only the 14:00 UTC run ────────────────
+      # Facebook is now handled by Buffer above; disable your Facebook Zap in
+      # Zapier so it does not double-post. Only the Instagram + YouTube Zaps
+      # should remain active.
+      - name: Post via Google Sheet (Zapier — Instagram + YouTube)
         id: post_sheet
         if: |
           inputs.skip_post != true &&
@@ -138,7 +140,7 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
           IDENT=$(python -c "import json;m=json.load(open('build/footage_manifest.json'));print(','.join(c.get('source','?') for c in m))" 2>/dev/null || echo "unknown")
-          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},tiktok=${{ steps.post_tiktok.outcome }},zapier=${{ steps.post_sheet.outcome }}" >> logs/history.csv
+          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},buffer=${{ steps.post_buffer.outcome }},zapier=${{ steps.post_sheet.outcome }}" >> logs/history.csv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/history.csv logs/used_topics.json 2>/dev/null || true
