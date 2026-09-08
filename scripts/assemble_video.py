@@ -188,7 +188,7 @@ def main():
     ap.add_argument("--out",         default="build/final.mp4")
     ap.add_argument("--music",       default="build/music.mp3")
     ap.add_argument("--music-dir",   default="assets/music")
-    ap.add_argument("--music-volume",type=float, default=0.28)
+    ap.add_argument("--music-volume",type=float, default=0.45)
     args = ap.parse_args()
 
     with open(args.script, encoding="utf-8") as f:
