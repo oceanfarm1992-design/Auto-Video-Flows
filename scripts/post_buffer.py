@@ -253,8 +253,30 @@ def introspect(token: str):
                 print(f"  possibleTypes={[x['name'] for x in t['possibleTypes']]}")
 
     # Detail the input type for any mutation that looks like publishing
+    # Detail object types (success + one error) — fields, not inputFields
+    for tname in ("PostActionSuccess", "InvalidInputError"):
+        oq = """
+        query O($n: String!) {
+          __type(name: $n) {
+            name kind
+            fields { name type { name kind ofType { name kind } } }
+          }
+        }
+        """
+        try:
+            od = gql(token, oq, {"n": tname})
+            t = od.get("__type")
+            if t:
+                print(f"\n[introspect] {t['kind']} {t['name']} fields:")
+                for f in t.get("fields") or []:
+                    ty = f["type"]
+                    tn = ty.get("name") or ty.get("ofType", {}).get("name")
+                    print(f"  {f['name']}: {tn}")
+        except SystemExit:
+            pass
+
     # Detail input object types
-    for tname in ("VideoAssetInput", "ImageAssetInput", "PostInputMetaData"):
+    for tname in ("VideoAssetInput",):
         tq = """
         query T($n: String!) {
           __type(name: $n) {
