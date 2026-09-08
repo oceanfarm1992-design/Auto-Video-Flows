@@ -98,8 +98,8 @@ jobs:
           echo "video_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Public video URL: $URL"
 
-      # ── TikTok + Facebook + Instagram + YouTube: Buffer (all 3 daily runs) ───
-      - name: Post to all platforms via Buffer
+      # ── TikTok + Facebook + Instagram: Buffer (all 3 daily runs) ─────────────
+      - name: Post to TikTok + Facebook + Instagram via Buffer
         id: post_buffer
         if: ${{ inputs.skip_post != true }}
         continue-on-error: true
@@ -110,7 +110,22 @@ jobs:
             --video-url "${{ steps.publish_asset.outputs.video_url }}" \
             --script build/script.json \
             --caption-file build/caption_meta.txt \
-            --services tiktok,facebook,instagram,youtube
+            --services tiktok,facebook,instagram
+
+      # ── YouTube: Zapier (all 3 daily runs — free tier) ───────────────────────
+      - name: Post to YouTube via Zapier (Google Sheet webhook)
+        id: post_sheet
+        if: ${{ inputs.skip_post != true }}
+        continue-on-error: true
+        env:
+          SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
+          SHEET_WEBHOOK_TOKEN: ${{ secrets.SHEET_WEBHOOK_TOKEN }}
+        run: |
+          python scripts/post_sheet.py \
+            --video-url "${{ steps.publish_asset.outputs.video_url }}" \
+            --script build/script.json \
+            --caption-file build/caption_meta.txt \
+            --config config/sources.json
 
       # ── Commit run log back to repo ───────────────────────────────────────────
       - name: Append run to history log
@@ -119,7 +134,7 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
           IDENT=$(python -c "import json;m=json.load(open('build/footage_manifest.json'));print(','.join(c.get('source','?') for c in m))" 2>/dev/null || echo "unknown")
-          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},buffer=${{ steps.post_buffer.outcome }}" >> logs/history.csv
+          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},buffer=${{ steps.post_buffer.outcome }},zapier=${{ steps.post_sheet.outcome }}" >> logs/history.csv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/history.csv logs/used_topics.json 2>/dev/null || true
