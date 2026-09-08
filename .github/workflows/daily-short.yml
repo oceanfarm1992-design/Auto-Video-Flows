@@ -2,7 +2,9 @@ name: daily-short
 
 on:
   schedule:
-    - cron: "0 14 * * *"   # daily 14:00 UTC -> build + post
+    - cron: "0 8  * * *"   # TikTok run 1 — 08:00 UTC (morning)
+    - cron: "0 14 * * *"   # TikTok run 2 — 14:00 UTC (midday) + Zapier post
+    - cron: "0 20 * * *"   # TikTok run 3 — 20:00 UTC (evening)
   workflow_dispatch:
     inputs:
       footage_source:
@@ -96,10 +98,28 @@ jobs:
           echo "video_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Public video URL: $URL"
 
-      # ── Post via Google Sheet → Zapier → Instagram / Facebook / YouTube ───────
-      - name: Post via Google Sheet (Zapier)
-        id: post_sheet
+      # ── TikTok: post via Buffer (all 3 daily runs) ───────────────────────────
+      - name: Post to TikTok via Buffer
+        id: post_tiktok
         if: ${{ inputs.skip_post != true }}
+        continue-on-error: true
+        env:
+          BUFFER_TOKEN: ${{ secrets.BUFFER_TOKEN }}
+        run: |
+          python scripts/post_buffer_tiktok.py \
+            --video-url "${{ steps.publish_asset.outputs.video_url }}" \
+            --script build/script.json \
+            --caption-file build/caption_tiktok.txt
+
+      # ── Instagram / Facebook / YouTube: Zapier — only the 14:00 UTC run ─────
+      # github.event.schedule is the cron string that triggered this run.
+      # workflow_dispatch always runs the sheet step so you can test posting.
+      - name: Post via Google Sheet (Zapier — Instagram/Facebook/YouTube)
+        id: post_sheet
+        if: |
+          inputs.skip_post != true &&
+          (github.event_name == 'workflow_dispatch' ||
+           github.event.schedule == '0 14 * * *')
         continue-on-error: true
         env:
           SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
@@ -118,7 +138,7 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
           IDENT=$(python -c "import json;m=json.load(open('build/footage_manifest.json'));print(','.join(c.get('source','?') for c in m))" 2>/dev/null || echo "unknown")
-          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},${{ steps.post_sheet.outcome }}" >> logs/history.csv
+          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},tiktok=${{ steps.post_tiktok.outcome }},zapier=${{ steps.post_sheet.outcome }}" >> logs/history.csv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/history.csv logs/used_topics.json 2>/dev/null || true
