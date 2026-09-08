@@ -104,7 +104,7 @@ jobs:
         if: ${{ inputs.skip_post != true }}
         continue-on-error: true
         env:
-          BUFFER_TOKEN: ${{ secrets.BUFFER_TOKEN }}
+          BUFFER_TOKEN: ${{ secrets.BUFFER_API_KEY }}
         run: |
           python scripts/post_buffer.py \
             --video-url "${{ steps.publish_asset.outputs.video_url }}" \
