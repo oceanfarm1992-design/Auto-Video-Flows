@@ -94,20 +94,16 @@ query GetChannels($orgId: OrganizationId!) {
 """
 
 CREATE_POST = """
-mutation CreatePost($channelId: String!, $text: String!, $mediaUrls: [String!]) {
-  postCreate(input: {
-    channelId: $channelId
-    text: $text
-    mediaUrls: $mediaUrls
-  }) {
-    post {
-      id
-      status
-    }
-    userErrors {
-      message
-      field
-    }
+mutation CreatePost($input: CreatePostInput!) {
+  createPost(input: $input) {
+    __typename
+    ... on PostActionSuccess { post { id } }
+    ... on NotFoundError { message }
+    ... on UnauthorizedError { message }
+    ... on UnexpectedError { message }
+    ... on RestProxyError { message }
+    ... on LimitReachedError { message }
+    ... on InvalidInputError { message }
   }
 }
 """
@@ -173,16 +169,24 @@ def post_video(token: str, channel_id: str, service: str,
     limit = CAPTION_LIMITS.get(service.lower(), CAPTION_LIMITS["default"])
     caption = caption[:limit]
 
-    data = gql(token, CREATE_POST, {
+    post_input = {
         "channelId": channel_id,
         "text": caption,
-        "mediaUrls": [video_url],
-    })
-    result = data.get("postCreate", {})
-    errors = result.get("userErrors", [])
-    if errors:
-        raise SystemExit(f"[post_buffer] Post errors for {service}: {errors}")
-    return result.get("post", {})
+        "assets": [{"video": {"url": video_url}}],
+        "mode": "shareNow",           # publish immediately
+        "schedulingType": "automatic",  # Buffer auto-publishes (vs. notification)
+        "needsApproval": False,
+    }
+    data = gql(token, CREATE_POST, {"input": post_input})
+    result = data.get("createPost", {})
+    typename = result.get("__typename")
+
+    if typename == "PostActionSuccess":
+        return result.get("post", {}) or {}
+
+    # Any other union member is an error type carrying a message
+    msg = result.get("message", "unknown error")
+    raise SystemExit(f"[post_buffer] {service} post failed ({typename}): {msg}")
 
 
 def build_caption(script_path: str, caption_file: str, service: str) -> str:
@@ -355,7 +359,7 @@ def main():
         name = ch.get("name", "?")
         print(f"[post_buffer] posting to {svc}:{name} ({cid})...")
         post = post_video(token, cid, svc, args.video_url, caption)
-        print(f"[post_buffer] {svc}:{name} — id={post.get('id')} status={post.get('status')}")
+        print(f"[post_buffer] ✓ {svc}:{name} — post id={post.get('id')}")
 
 
 if __name__ == "__main__":
