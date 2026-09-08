@@ -225,7 +225,7 @@ def introspect(token: str):
 
     # Detail the input type for any mutation that looks like publishing
     # Detail input object types
-    for tname in ("CreatePostInput", "AssetInput", "PostAssetInput", "MediaAssetInput"):
+    for tname in ("VideoAssetInput", "ImageAssetInput", "PostInputMetaData"):
         tq = """
         query T($n: String!) {
           __type(name: $n) {
