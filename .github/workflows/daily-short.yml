@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       footage_source:
-        description: "Force footage source (blank = auto: pexels -> pixabay -> animate)"
+        description: "Force footage source for all segments (blank = auto)"
         type: choice
-        options: ["", "pexels", "pixabay", "animate", "archive"]
+        options: ["", "pexels_video", "pixabay_video", "pexels_photo", "pixabay_photo", "animate"]
         default: ""
       topic_index:
         description: "Force a specific topic index from config/topics.json (blank = random)"
@@ -46,19 +46,7 @@ jobs:
           fi
           python scripts/generate_script_ai.py $TOPIC_ARG
 
-      # ── Stage 2: fetch footage matched to the AI-generated query ─────────────
-      - name: Fetch footage (Pexels / Pixabay / animation)
-        env:
-          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
-          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-        run: |
-          ARG=""
-          if [ -n "${{ inputs.footage_source }}" ]; then
-            ARG="--source ${{ inputs.footage_source }}"
-          fi
-          python scripts/fetch_footage.py $ARG
-
-      # ── Stage 3: OpenAI TTS voice → Piper → espeak fallback chain ────────────
+      # ── Stage 2: TTS first (so captions + footage can use real audio duration) ─
       - name: Generate TTS voiceover
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -67,9 +55,23 @@ jobs:
             || python scripts/generate_tts.py --fallback piper \
             || python scripts/generate_tts.py --fallback espeak
 
-      # ── Stage 4-6: captions, music, assembly (unchanged) ─────────────────────
-      - name: Generate captions
+      # ── Stage 3: Whisper-synced captions (word-level timestamps) ─────────────
+      - name: Generate captions (Whisper word-level sync)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python scripts/generate_captions.py
+
+      # ── Stage 4: Fetch one clip/photo per story segment ──────────────────────
+      - name: Fetch multi-segment footage
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: |
+          ARG=""
+          if [ -n "${{ inputs.footage_source }}" ]; then
+            ARG="--force-source ${{ inputs.footage_source }}"
+          fi
+          python scripts/fetch_footage_multi.py $ARG
 
       - name: Generate background music
         run: python scripts/generate_music.py
@@ -110,7 +112,7 @@ jobs:
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
-          IDENT=$(python -c "import json;d=json.load(open('build/footage.json'));print(d.get('identifier', d.get('source','?')))" 2>/dev/null || echo "unknown")
+          IDENT=$(python -c "import json;m=json.load(open('build/footage_manifest.json'));print(','.join(c.get('source','?') for c in m))" 2>/dev/null || echo "unknown")
           echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},${{ steps.post_sheet.outcome }}" >> logs/history.csv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"

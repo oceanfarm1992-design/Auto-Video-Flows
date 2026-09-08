@@ -1,103 +1,145 @@
 #!/usr/bin/env python3
 """
-Stage 4: build burned-in captions from the KNOWN script text.
+Stage 4: Build burned-in captions from the voiceover audio.
 
-Because we authored the narration, we don't need speech-to-text. We take the total
-voiceover duration (read from the WAV header) and distribute the words across it
-proportionally, then group them into short caption cues (a few words each) for a
-punchy, readable, "word-by-word-ish" look.
+Primary (when OPENAI_API_KEY is set):
+  Whisper API with word-level timestamps → precise subtitle sync.
+
+Fallback:
+  Distribute words proportionally across the measured WAV duration.
 
 Output: build/captions.srt
 
-Duration source:
-  - Preferred: read the exact length of build/voice.wav (stdlib `wave`).
-  - Fallback: if the audio isn't a readable PCM WAV, estimate from words_per_second
-    in config/sources.json.
-
 Usage:
     python scripts/generate_captions.py
-    python scripts/generate_captions.py --audio build/voice.wav --words-per-cue 3
+    python scripts/generate_captions.py --no-whisper    # force fallback
+    python scripts/generate_captions.py --words-per-cue 4
 """
 import argparse
 import contextlib
 import json
 import os
 import wave
+from pathlib import Path
 
 
-def wav_duration_seconds(path):
-    """Return duration in seconds, or None if not a readable PCM WAV."""
-    try:
-        with contextlib.closing(wave.open(path, "rb")) as w:
-            frames = w.getnframes()
-            rate = w.getframerate()
-            if rate:
-                return frames / float(rate)
-    except (wave.Error, EOFError, FileNotFoundError):
-        return None
-    return None
+# ── Formatting ────────────────────────────────────────────────────────────────
 
-
-def fmt_ts(seconds):
-    """seconds -> SRT timestamp HH:MM:SS,mmm"""
+def fmt_ts(seconds: float) -> str:
     if seconds < 0:
-        seconds = 0
+        seconds = 0.0
     ms = int(round(seconds * 1000))
-    h, ms = divmod(ms, 3600 * 1000)
-    m, ms = divmod(ms, 60 * 1000)
+    h, ms = divmod(ms, 3_600_000)
+    m, ms = divmod(ms, 60_000)
     s, ms = divmod(ms, 1000)
     return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
 
 
-def build_srt(words, total_seconds, words_per_cue):
-    """Distribute words evenly across total_seconds, grouped into cues."""
-    n = len(words)
-    per_word = total_seconds / n if n else 0.0
-    cues = []
-    i = 0
-    while i < n:
-        group = words[i:i + words_per_cue]
-        start = i * per_word
-        end = (i + len(group)) * per_word
-        cues.append((start, end, " ".join(group)))
-        i += words_per_cue
-
+def cues_to_srt(cues: list[tuple[float, float, str]]) -> str:
     lines = []
-    for idx, (start, end, text) in enumerate(cues, start=1):
-        lines.append(str(idx))
-        lines.append(f"{fmt_ts(start)} --> {fmt_ts(end)}")
-        lines.append(text)
-        lines.append("")
+    for idx, (start, end, text) in enumerate(cues, 1):
+        lines += [str(idx), f"{fmt_ts(start)} --> {fmt_ts(end)}", text, ""]
     return "\n".join(lines)
 
 
+# ── Whisper path ──────────────────────────────────────────────────────────────
+
+def whisper_srt(audio_path: str, words_per_cue: int) -> str:
+    from openai import OpenAI
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    print("[generate_captions] Whisper transcription for word-level timestamps...")
+    with open(audio_path, "rb") as f:
+        result = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=f,
+            response_format="verbose_json",
+            timestamp_granularities=["word"],
+        )
+    words = result.words or []
+    if not words:
+        raise ValueError("Whisper returned no word timestamps")
+
+    cues = []
+    i = 0
+    while i < len(words):
+        chunk = words[i: i + words_per_cue]
+        start = chunk[0].start
+        end   = chunk[-1].end
+        text  = " ".join(w.word.strip() for w in chunk)
+        cues.append((start, end, text))
+        i += words_per_cue
+
+    print(f"[generate_captions] Whisper: {len(words)} words → {len(cues)} cues")
+    return cues_to_srt(cues)
+
+
+# ── Fallback: word-count estimation ──────────────────────────────────────────
+
+def wav_duration(path: str) -> float | None:
+    try:
+        with contextlib.closing(wave.open(path, "rb")) as w:
+            frames = w.getnframes()
+            rate   = w.getframerate()
+            return frames / float(rate) if rate else None
+    except (wave.Error, EOFError, FileNotFoundError):
+        return None
+
+
+def estimated_srt(script_txt: str, audio_path: str,
+                  words_per_cue: int, wps_fallback: float) -> str:
+    words   = script_txt.split()
+    duration = wav_duration(audio_path)
+    if duration is None:
+        duration = len(words) / wps_fallback
+        print(f"[generate_captions] WAV unreadable; estimated {duration:.1f}s")
+    else:
+        print(f"[generate_captions] WAV duration {duration:.1f}s")
+
+    n = len(words)
+    per_word = duration / n if n else 0.0
+    cues = []
+    i = 0
+    while i < n:
+        group = words[i: i + words_per_cue]
+        cues.append((i * per_word, (i + len(group)) * per_word, " ".join(group)))
+        i += words_per_cue
+    return cues_to_srt(cues)
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--script", default="build/script.txt")
-    ap.add_argument("--audio", default="build/voice.wav")
-    ap.add_argument("--out", default="build/captions.srt")
-    ap.add_argument("--config", default="config/sources.json")
-    ap.add_argument("--words-per-cue", type=int, default=3)
+    ap.add_argument("--script",       default="build/script.txt")
+    ap.add_argument("--audio",        default="build/voice.wav")
+    ap.add_argument("--out",          default="build/captions.srt")
+    ap.add_argument("--config",       default="config/sources.json")
+    ap.add_argument("--words-per-cue",type=int, default=4)
+    ap.add_argument("--no-whisper",   action="store_true",
+                    help="Skip Whisper API and use word-count estimation.")
     args = ap.parse_args()
 
-    with open(args.script, encoding="utf-8") as f:
-        words = f.read().split()
-
-    duration = wav_duration_seconds(args.audio)
-    if duration is None:
+    wps = 2.6
+    if os.path.exists(args.config):
         with open(args.config, encoding="utf-8") as f:
-            wps = json.load(f)["video"]["words_per_second"]
-        duration = len(words) / wps
-        print(f"[generate_captions] WAV unreadable; estimated {duration:.1f}s "
-              f"from {wps} words/sec")
-    else:
-        print(f"[generate_captions] voiceover duration {duration:.1f}s")
+            wps = json.load(f).get("video", {}).get("words_per_second", wps)
 
-    srt = build_srt(words, duration, args.words_per_cue)
+    srt = None
+
+    # Try Whisper if key present and not disabled
+    if not args.no_whisper and os.environ.get("OPENAI_API_KEY"):
+        try:
+            srt = whisper_srt(args.audio, args.words_per_cue)
+        except Exception as e:
+            print(f"[generate_captions] Whisper failed ({e}), using estimation fallback")
+
+    if srt is None:
+        script_txt = Path(args.script).read_text(encoding="utf-8")
+        srt = estimated_srt(script_txt, args.audio, args.words_per_cue, wps)
+
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
-    with open(args.out, "w", encoding="utf-8") as f:
-        f.write(srt)
-    print(f"[generate_captions] wrote {args.out} ({len(words)} words)")
+    Path(args.out).write_text(srt, encoding="utf-8")
+    print(f"[generate_captions] wrote {args.out}")
 
 
 if __name__ == "__main__":

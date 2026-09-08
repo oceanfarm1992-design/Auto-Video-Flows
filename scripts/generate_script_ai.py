@@ -69,29 +69,52 @@ def build_prompt(topic: dict, story_format: str) -> str:
     field = topic["field"]
     theme = topic["theme"]
     era = topic["era"]
-    return f"""Write a motivational short-form video script about {name} ({era}), focusing on the theme: "{theme}" in the field of {field}.
+    return f"""Write a motivational short-form video script about {name} ({era}), theme: "{theme}", field: {field}, format: {story_format.replace("_", " ")}.
 
-Story format: {story_format.replace("_", " ")}
-
-Return ONLY a valid JSON object with these exact keys (no markdown, no code fences):
+Return ONLY valid JSON with these exact keys (no markdown, no code fences):
 
 {{
-  "title": "Short punchy hook title (max 8 words, ALL CAPS)",
-  "narration": "The spoken script, 180-220 words. Start with a strong hook sentence. Tell the specific real story. End with the lesson for today's viewer. Vivid, specific, no clichés.",
-  "lesson": "One-sentence takeaway (the core lesson from this story)",
-  "footage_query": "4-6 word Pexels/Pixabay search query for visually relevant B-roll (e.g. 'scientist laboratory microscope cinematic' or 'basketball court night training')",
-  "seo_title": "YouTube Shorts SEO title (max 60 chars, includes person name + hook)",
-  "seo_description": "YouTube description (80-120 words): story summary + lesson + call to action. Include 3-5 natural keyword phrases.",
-  "hashtags_instagram": "#motivation #success #history [8-10 relevant hashtags including the person's name and field]",
-  "hashtags_youtube": "#Shorts #motivation [5-6 hashtags]",
-  "hashtags_facebook": "#motivation #history [5-6 hashtags]",
-  "caption_instagram": "Instagram caption: first 125 chars are the hook (shown before 'more'). Full caption 150-200 chars. Include attribution and hashtags.",
-  "caption_facebook": "Facebook caption: 100-140 chars. Conversational, question or statement that invites engagement.",
-  "caption_youtube": "YouTube Shorts caption: 100-120 chars. Keyword-rich.",
+  "title": "Hook title max 8 words ALL CAPS",
+  "narration": "Full spoken script 180-220 words. Strong hook opening. Vivid specific story. Lesson at end. No clichés.",
+  "segments": [
+    {{
+      "text": "Exact opening words of narration for segment 1 (hook/intro, ~40 words)",
+      "footage_query": "4-5 word Pexels search query matching this segment visually",
+      "media_type": "video"
+    }},
+    {{
+      "text": "Exact words for segment 2 (the story/struggle, ~60 words)",
+      "footage_query": "specific visual query for this moment",
+      "media_type": "video"
+    }},
+    {{
+      "text": "Exact words for segment 3 (the turning point, ~50 words)",
+      "footage_query": "specific visual query for this moment",
+      "media_type": "photo"
+    }},
+    {{
+      "text": "Exact words for segment 4 (lesson/call to action, ~50 words)",
+      "footage_query": "inspirational abstract visual query",
+      "media_type": "video"
+    }}
+  ],
+  "lesson": "One sentence takeaway",
+  "footage_query": "4-6 word fallback query for overall story",
+  "seo_title": "YouTube title max 60 chars with person name",
+  "seo_description": "YouTube description 80-120 words: story + lesson + CTA + 3-5 keyword phrases",
+  "hashtags_instagram": "8-10 hashtags including person name and field",
+  "hashtags_youtube": "#Shorts #motivation 5-6 hashtags",
+  "hashtags_facebook": "5-6 hashtags",
+  "caption_instagram": "Instagram caption: hook in first 125 chars, full 150-200 chars with hashtags",
+  "caption_facebook": "Facebook caption 100-140 chars, conversational",
+  "caption_youtube": "YouTube caption 100-120 chars keyword-rich",
   "author": "{name}",
   "field": "{field}",
   "era": "{era}"
-}}"""
+}}
+
+IMPORTANT: The segment texts must together form the complete narration in order with no gaps.
+Each footage_query must be specific to that segment's visual moment, not generic."""
 
 def call_openai(client: OpenAI, prompt: str, model: str) -> dict:
     response = client.chat.completions.create(
