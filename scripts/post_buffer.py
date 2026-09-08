@@ -224,15 +224,15 @@ def introspect(token: str):
         print(f"  {f['name']}({args})")
 
     # Detail the input type for any mutation that looks like publishing
-    for tname in ("CreatePostInput", "PostContentInput", "CreatePostContentInput",
-                  "PostSchedulingTypeInput", "PostContent", "MediaInput"):
+    # Detail input object types
+    for tname in ("CreatePostInput", "AssetInput", "PostAssetInput", "MediaAssetInput"):
         tq = """
         query T($n: String!) {
           __type(name: $n) {
-            name
+            name kind
             inputFields {
               name
-              type { name kind ofType { name kind ofType { name kind } } }
+              type { name kind ofType { name kind ofType { name kind ofType { name kind } } } }
             }
           }
         }
@@ -241,14 +241,36 @@ def introspect(token: str):
             td = gql(token, tq, {"n": tname})
             t = td.get("__type")
             if t:
-                print(f"\n[introspect] input {t['name']}:")
+                print(f"\n[introspect] {t['kind']} {t['name']}:")
                 for inf in t.get("inputFields") or []:
                     ty = inf["type"]
-                    tn = (ty.get("name")
-                          or ty.get("ofType", {}).get("name")
-                          or ty.get("ofType", {}).get("ofType", {}).get("name"))
-                    req = "!" if ty["kind"] == "NON_NULL" else ""
-                    print(f"  {inf['name']}: {tn}{req}")
+                    # drill through NON_NULL/LIST wrappers to the leaf name
+                    leaf, wrap = ty, ""
+                    while leaf:
+                        if leaf["kind"] == "NON_NULL":
+                            wrap += "!"
+                        elif leaf["kind"] == "LIST":
+                            wrap += "[]"
+                        if leaf.get("name"):
+                            break
+                        leaf = leaf.get("ofType")
+                    print(f"  {inf['name']}: {leaf.get('name') if leaf else '?'} {wrap}")
+        except SystemExit:
+            pass
+
+    # Enum values for the required enums
+    for ename in ("ShareMode", "SchedulingType"):
+        eq = """
+        query E($n: String!) {
+          __type(name: $n) { name kind enumValues { name } }
+        }
+        """
+        try:
+            ed = gql(token, eq, {"n": ename})
+            e = ed.get("__type")
+            if e:
+                vals = [v["name"] for v in e.get("enumValues") or []]
+                print(f"\n[introspect] enum {e['name']}: {vals}")
         except SystemExit:
             pass
 
