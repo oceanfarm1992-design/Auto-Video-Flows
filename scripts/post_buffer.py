@@ -202,6 +202,47 @@ def build_caption(script_path: str, caption_file: str, service: str) -> str:
     return "#motivation #success"
 
 
+def introspect(token: str):
+    """Print publishing-related mutations and their input shapes."""
+    q = """
+    query {
+      __schema {
+        mutationType {
+          fields { name args { name type { name kind ofType { name kind } } } }
+        }
+      }
+    }
+    """
+    data = gql(token, q)
+    fields = data.get("__schema", {}).get("mutationType", {}).get("fields", [])
+    print(f"[introspect] {len(fields)} mutations:")
+    for f in fields:
+        args = ", ".join(
+            f"{a['name']}:{a['type'].get('name') or a['type'].get('ofType', {}).get('name')}"
+            for a in f.get("args", [])
+        )
+        print(f"  {f['name']}({args})")
+
+    # Detail the input type for any mutation that looks like publishing
+    for tname in ("PostCreateInput", "IdeaCreateInput", "UpdateCreateInput",
+                  "PublishCreateInput", "ScheduleInput", "CreateUpdateInput"):
+        tq = """
+        query T($n: String!) {
+          __type(name: $n) { name inputFields { name type { name kind ofType { name kind } } } }
+        }
+        """
+        try:
+            td = gql(token, tq, {"n": tname})
+            t = td.get("__type")
+            if t:
+                print(f"\n[introspect] input {t['name']}:")
+                for inf in t.get("inputFields") or []:
+                    ty = inf["type"].get("name") or inf["type"].get("ofType", {}).get("name")
+                    print(f"  {inf['name']}: {ty} ({inf['type']['kind']})")
+        except SystemExit:
+            pass
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--video-url",    required=True)
@@ -214,6 +255,10 @@ def main():
     token = os.environ.get("BUFFER_TOKEN", "").strip()
     if not token:
         raise SystemExit("[post_buffer] BUFFER_TOKEN environment variable not set.")
+
+    if os.environ.get("BUFFER_INTROSPECT") == "1":
+        introspect(token)
+        return
 
     services = [s.strip().lower() for s in args.services.split(",") if s.strip()]
     caption  = build_caption(args.script, args.caption_file, services[0] if services else "")
