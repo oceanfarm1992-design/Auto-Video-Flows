@@ -215,13 +215,42 @@ def introspect(token: str):
     """
     data = gql(token, q)
     fields = data.get("__schema", {}).get("mutationType", {}).get("fields", [])
-    print(f"[introspect] {len(fields)} mutations:")
-    for f in fields:
-        args = ", ".join(
-            f"{a['name']}:{a['type'].get('name') or a['type'].get('ofType', {}).get('name')}"
-            for a in f.get("args", [])
-        )
-        print(f"  {f['name']}({args})")
+    print(f"[introspect] {len(fields)} mutations (skipped)")
+
+    # Return type of createPost
+    rq = """
+    query {
+      __type(name: "Mutation") {
+        fields {
+          name
+          type { name kind ofType { name kind } }
+        }
+      }
+    }
+    """
+    rd = gql(token, rq)
+    for f in rd.get("__type", {}).get("fields", []):
+        if f["name"] == "createPost":
+            ty = f["type"]
+            rtn = ty.get("name") or ty.get("ofType", {}).get("name")
+            print(f"[introspect] createPost returns: {rtn} ({ty['kind']})")
+            # detail that type's fields / union members
+            dq = """
+            query D($n: String!) {
+              __type(name: $n) {
+                name kind
+                fields { name }
+                possibleTypes { name }
+              }
+            }
+            """
+            dd = gql(token, dq, {"n": rtn})
+            t = dd.get("__type", {})
+            print(f"  kind={t.get('kind')}")
+            if t.get("fields"):
+                print(f"  fields={[x['name'] for x in t['fields']]}")
+            if t.get("possibleTypes"):
+                print(f"  possibleTypes={[x['name'] for x in t['possibleTypes']]}")
 
     # Detail the input type for any mutation that looks like publishing
     # Detail input object types
