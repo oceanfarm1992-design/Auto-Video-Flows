@@ -98,8 +98,8 @@ jobs:
           echo "video_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Public video URL: $URL"
 
-      # ── TikTok + Facebook: post via Buffer (all 3 daily runs) ──────────────
-      - name: Post to TikTok + Facebook via Buffer
+      # ── TikTok + Facebook + Instagram: post via Buffer (all 3 daily runs) ────
+      - name: Post to TikTok + Facebook + Instagram via Buffer
         id: post_buffer
         if: ${{ inputs.skip_post != true }}
         continue-on-error: true
@@ -110,13 +110,12 @@ jobs:
             --video-url "${{ steps.publish_asset.outputs.video_url }}" \
             --script build/script.json \
             --caption-file build/caption_meta.txt \
-            --services tiktok,facebook
+            --services tiktok,facebook,instagram
 
-      # ── Instagram + YouTube: Zapier — only the 14:00 UTC run ────────────────
-      # Facebook is now handled by Buffer above; disable your Facebook Zap in
-      # Zapier so it does not double-post. Only the Instagram + YouTube Zaps
-      # should remain active.
-      - name: Post via Google Sheet (Zapier — Instagram + YouTube)
+      # ── YouTube only: Zapier — only the 14:00 UTC run ────────────────────────
+      # TikTok, Facebook, Instagram are now all handled by Buffer above.
+      # Disable those Zaps in Zapier so they do not double-post.
+      - name: Post via Google Sheet (Zapier — YouTube only)
         id: post_sheet
         if: |
           inputs.skip_post != true &&
