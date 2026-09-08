@@ -224,11 +224,17 @@ def introspect(token: str):
         print(f"  {f['name']}({args})")
 
     # Detail the input type for any mutation that looks like publishing
-    for tname in ("PostCreateInput", "IdeaCreateInput", "UpdateCreateInput",
-                  "PublishCreateInput", "ScheduleInput", "CreateUpdateInput"):
+    for tname in ("CreatePostInput", "PostContentInput", "CreatePostContentInput",
+                  "PostSchedulingTypeInput", "PostContent", "MediaInput"):
         tq = """
         query T($n: String!) {
-          __type(name: $n) { name inputFields { name type { name kind ofType { name kind } } } }
+          __type(name: $n) {
+            name
+            inputFields {
+              name
+              type { name kind ofType { name kind ofType { name kind } } }
+            }
+          }
         }
         """
         try:
@@ -237,8 +243,12 @@ def introspect(token: str):
             if t:
                 print(f"\n[introspect] input {t['name']}:")
                 for inf in t.get("inputFields") or []:
-                    ty = inf["type"].get("name") or inf["type"].get("ofType", {}).get("name")
-                    print(f"  {inf['name']}: {ty} ({inf['type']['kind']})")
+                    ty = inf["type"]
+                    tn = (ty.get("name")
+                          or ty.get("ofType", {}).get("name")
+                          or ty.get("ofType", {}).get("ofType", {}).get("name"))
+                    req = "!" if ty["kind"] == "NON_NULL" else ""
+                    print(f"  {inf['name']}: {tn}{req}")
         except SystemExit:
             pass
 
