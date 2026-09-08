@@ -280,7 +280,8 @@ def introspect(token: str):
             pass
 
     # Detail input object types
-    for tname in ("VideoAssetInput",):
+    for tname in ("InstagramPostMetadataInput", "TikTokPostMetadataInput",
+                  "FacebookPostMetadataInput", "VideoAssetInput"):
         tq = """
         query T($n: String!) {
           __type(name: $n) {
