@@ -263,7 +263,14 @@ def read_script_id(args):
 def choose_query(args, cfg, picked_id):
     if args.query:
         return args.query
-    # tie the footage theme to the quote that was picked in stage 1
+    # AI-generated script includes its own footage_query — use it first
+    script_path = os.path.join(args.out, "script.json")
+    if os.path.exists(script_path):
+        with open(script_path, encoding="utf-8") as f:
+            fq = json.load(f).get("footage_query", "")
+        if fq:
+            return fq
+    # legacy: look up from gutenberg_texts by id
     if picked_id:
         for text in cfg.get("gutenberg_texts", []):
             if text.get("id") == picked_id and text.get("footage_query"):

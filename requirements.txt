@@ -1,5 +1,6 @@
 # Core pipeline dependencies (all pure-python or wheels that install cleanly on GitHub Actions Ubuntu)
 requests>=2.31.0
+openai>=1.35.0
 
 # TTS: piper-tts ships prebuilt wheels for linux and runs fully offline (no API key).
 # VERIFY: exact package name / version. On PyPI the package is "piper-tts" and the CLI entrypoint is "piper".

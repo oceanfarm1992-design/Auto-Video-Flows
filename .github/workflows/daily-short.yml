@@ -1,8 +1,5 @@
 name: daily-short
 
-# Single daily schedule: build the short and hand it off for posting by appending a
-# row to the shared Google Sheet that Zapier watches. No token-refresh job is needed
-# anymore — posting auth lives in Zapier, not in this repo.
 on:
   schedule:
     - cron: "0 14 * * *"   # daily 14:00 UTC -> build + post
@@ -13,9 +10,12 @@ on:
         type: choice
         options: ["", "pexels", "pixabay", "animate", "archive"]
         default: ""
+      topic_index:
+        description: "Force a specific topic index from config/topics.json (blank = random)"
+        default: ""
 
 permissions:
-  contents: write          # commit logs/history.csv and create the release asset
+  contents: write
 
 jobs:
   build_and_post:
@@ -35,10 +35,18 @@ jobs:
       - name: Install python deps
         run: pip install -r requirements.txt
 
-      # ---- content pipeline ----
-      - name: Fetch script text
-        run: python scripts/fetch_script_text.py
+      # ── Stage 1: AI generates a fresh historical success story ──────────────
+      - name: Generate script (OpenAI GPT)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          TOPIC_ARG=""
+          if [ -n "${{ inputs.topic_index }}" ]; then
+            TOPIC_ARG="--topic-index ${{ inputs.topic_index }}"
+          fi
+          python scripts/generate_script_ai.py $TOPIC_ARG
 
+      # ── Stage 2: fetch footage matched to the AI-generated query ─────────────
       - name: Fetch footage (Pexels / Pixabay / animation)
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
@@ -50,25 +58,26 @@ jobs:
           fi
           python scripts/fetch_footage.py $ARG
 
+      # ── Stage 3: OpenAI TTS voice → Piper → espeak fallback chain ────────────
       - name: Generate TTS voiceover
-        # If Piper install/model download misbehaves, fall back to espeak-ng so the
-        # daily run still produces audio instead of failing hard.
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          python scripts/generate_tts.py || \
-          python scripts/generate_tts.py --fallback espeak
+          python scripts/generate_tts.py \
+            || python scripts/generate_tts.py --fallback piper \
+            || python scripts/generate_tts.py --fallback espeak
 
+      # ── Stage 4-6: captions, music, assembly (unchanged) ─────────────────────
       - name: Generate captions
         run: python scripts/generate_captions.py
 
-      - name: Generate background music (ambient pad)
+      - name: Generate background music
         run: python scripts/generate_music.py
 
       - name: Assemble video
         run: python scripts/assemble_video.py
 
-      # ---- make the video publicly fetchable (Zapier / Instagram Reels needs a public URL) ----
-      # NOTE: release assets are only PUBLICLY reachable if this repo is PUBLIC.
-      # For a private repo, host final.mp4 elsewhere and set the URL accordingly.
+      # ── Publish as GitHub Release asset (Zapier needs a public URL) ──────────
       - name: Publish video as release asset
         id: publish_asset
         env:
@@ -81,11 +90,7 @@ jobs:
           echo "video_url=$URL" >> "$GITHUB_OUTPUT"
           echo "Public video URL: $URL"
 
-      # ---- posting: append one row to the shared Google Sheet; Zapier does the rest ----
-      # One Zap per platform (Instagram / Facebook / YouTube) watches this sheet with a
-      # free "New Spreadsheet Row" trigger and posts via Zapier's own connections. No
-      # platform tokens are stored in this repo. TikTok is intentionally omitted (app
-      # not audited; no free Zapier TikTok posting integration).
+      # ── Post via Google Sheet → Zapier → Instagram / Facebook / YouTube ───────
       - name: Post via Google Sheet (Zapier)
         id: post_sheet
         continue-on-error: true
@@ -99,16 +104,16 @@ jobs:
             --caption-file build/caption_meta.txt \
             --config config/sources.json
 
-      # ---- log results back to the repo ----
+      # ── Commit run log back to repo ───────────────────────────────────────────
       - name: Append run to history log
         if: always()
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
-          IDENT=$(python -c "import json;print(json.load(open('build/footage.json'))['identifier'])" 2>/dev/null || echo "unknown")
+          IDENT=$(python -c "import json;d=json.load(open('build/footage.json'));print(d.get('identifier', d.get('source','?')))" 2>/dev/null || echo "unknown")
           echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},${{ steps.post_sheet.outcome }}" >> logs/history.csv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add logs/history.csv
+          git add logs/history.csv logs/used_topics.json 2>/dev/null || true
           git commit -m "log: daily run ${DATE}" || echo "nothing to commit"
           git push
