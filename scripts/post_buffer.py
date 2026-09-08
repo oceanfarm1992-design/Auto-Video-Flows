@@ -315,7 +315,7 @@ def introspect(token: str):
             pass
 
     # Enum values for the required enums
-    for ename in ("ShareMode", "SchedulingType"):
+    for ename in ("ShareMode", "SchedulingType", "PostType", "PostTypeFacebook"):
         eq = """
         query E($n: String!) {
           __type(name: $n) { name kind enumValues { name } }
