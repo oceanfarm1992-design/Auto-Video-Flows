@@ -13,6 +13,10 @@ on:
       topic_index:
         description: "Force a specific topic index from config/topics.json (blank = random)"
         default: ""
+      skip_post:
+        description: "Set to 'true' to build the video but skip posting to the sheet"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -95,6 +99,7 @@ jobs:
       # ── Post via Google Sheet → Zapier → Instagram / Facebook / YouTube ───────
       - name: Post via Google Sheet (Zapier)
         id: post_sheet
+        if: ${{ inputs.skip_post != true }}
         continue-on-error: true
         env:
           SHEET_WEBHOOK_URL: ${{ secrets.SHEET_WEBHOOK_URL }}
