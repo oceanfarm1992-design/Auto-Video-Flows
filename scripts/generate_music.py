@@ -45,71 +45,54 @@ def build_filter(freqs: list, duration: float) -> str:
     chains = []
     labels = []
 
-    # ── Tonal layers: paired sine tones (in-tune + detuned for warmth) ────────
+    # ── Tonal layers: in-tune + detuned pairs for chorus warmth ──────────────
     for i, f in enumerate(freqs):
         vol     = LAYER_VOLS[i] if i < len(LAYER_VOLS) else 0.08
         vol_det = vol * 0.75
-        sr      = 44100
 
-        # In-tune sine
         chains.append(
-            f"sine=frequency={f:.3f}:duration={duration}:sample_rate={sr},"
+            f"sine=frequency={f:.3f}:duration={duration}:sample_rate=44100,"
             f"volume={vol:.3f}[s{i}a]"
         )
-        # Detuned companion (creates beating / chorus)
         chains.append(
-            f"sine=frequency={f * DETUNE_RATE:.4f}:duration={duration}:sample_rate={sr},"
+            f"sine=frequency={f * DETUNE_RATE:.4f}:duration={duration}:sample_rate=44100,"
             f"volume={vol_det:.3f}[s{i}b]"
         )
         labels += [f"[s{i}a]", f"[s{i}b]"]
 
-    # ── Sub-bass thump: very low sine with fast amplitude pulse ──────────────
-    # Creates the "heartbeat/kick" effect at 60 BPM (1 Hz pulse via tremolo)
-    sub_freq = freqs[0] * 0.5  # one octave below root
+    # ── Sub-bass: one octave below root, pulsing at 60 BPM via volume expr ───
+    # abs(sin(PI*t)) gives a smooth 1 Hz positive pulse (0→1→0→1…)
+    sub_freq = freqs[0] * 0.5
     chains.append(
         f"sine=frequency={sub_freq:.3f}:duration={duration}:sample_rate=44100,"
-        "volume=0.55,"
-        "tremolo=f=1.0:d=0.85,"    # 60 BPM heartbeat pulse
-        "[sub]"
+        f"volume='0.55*abs(sin(3.14159*1.0*t))'[sub]"
     )
     labels.append("[sub]")
-
-    # ── Noise bed: very low rumble for physical presence ─────────────────────
-    chains.append(
-        f"anoisesrc=color=pink:duration={duration}:sample_rate=44100,"
-        "lowpass=f=120,volume=0.06[rumble]"
-    )
-    labels.append("[rumble]")
 
     n = len(labels)
     fade_out = max(0.0, duration - 3.5)
 
-    # ── Swell envelope: builds from quiet to full over first 20s then holds ──
-    # t < 5s  → 0.12 (subtle intro)
-    # 5-20s   → linear rise from 0.12 to 0.80
-    # > 20s   → holds at 0.80
-    swell = (
-        "volume=enable='1':volume="
-        "'if(lt(t,5),0.12,"
-        "if(lt(t,20),0.12+0.68*((t-5)/15),"
-        "0.80))'"
-    )
+    # ── Swell: starts quiet, builds to full by 20s, holds ────────────────────
+    # Uses only basic ffmpeg arithmetic — no tremolo/equalizer filter needed
+    swell = "volume='if(lt(t,5),0.15,if(lt(t,20),0.15+0.65*((t-5)/15),0.80))'"
+
+    # ── Pumping pulse on full mix: 2 Hz volume LFO = 120 BPM feel ────────────
+    # 0.70 + 0.30*abs(sin(PI*2*t)) keeps volume between 0.70 and 1.00
+    pump = "volume='0.70+0.30*abs(sin(3.14159*2.0*t))'"
 
     mix = (
         "".join(labels) + f"amix=inputs={n}:normalize=0,"
-        # Rhythmic pulse — 2 Hz tremolo = 120 BPM pumping feel
-        "tremolo=f=2.0:d=0.25,"
-        # Warmth: low-pass cuts harsh alias noise
-        "lowpass=f=2500,"
-        # Cinematic space: hall reverb simulation
-        "aecho=0.75:0.85:40|80|160:0.35|0.22|0.12,"
-        # Presence boost — small high-shelf lift
-        "equalizer=f=3000:t=h:w=1:g=3,"
-        # Dramatic swell
+        # Warmth: roll off harsh high-frequency alias noise
+        "lowpass=f=3500,"
+        # Cinematic space: simple single echo/reverb
+        "aecho=0.70:0.80:55:0.30,"
+        # Dramatic swell envelope
         f"{swell},"
+        # 120 BPM pumping volume LFO
+        f"{pump},"
         # Fade in/out
         f"afade=t=in:d=2,afade=t=out:st={fade_out:.2f}:d=3.5,"
-        # Normalize to consistent level so the voice-duck ratio stays fixed
+        # Normalize to consistent loudness
         "loudnorm=I=-14:TP=-1:LRA=9[out]"
     )
 
