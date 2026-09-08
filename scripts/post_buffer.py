@@ -54,9 +54,20 @@ def gql(token: str, query: str, variables: dict = None) -> dict:
     return body.get("data", {})
 
 
-GET_CHANNELS = """
+GET_ORG = """
 query {
-  channels(input: {}) {
+  account {
+    id
+    currentOrganization {
+      id
+    }
+  }
+}
+"""
+
+GET_CHANNELS = """
+query GetChannels($orgId: OrganizationId!) {
+  channels(input: { organizationId: $orgId }) {
     id
     service
     name
@@ -85,9 +96,21 @@ mutation CreatePost($channelId: String!, $text: String!, $mediaUrls: [String!]) 
 """
 
 
+def get_org_id(token: str) -> str:
+    data = gql(token, GET_ORG)
+    org_id = (data.get("account", {})
+                  .get("currentOrganization", {})
+                  .get("id"))
+    if not org_id:
+        raise SystemExit(f"[post_buffer] Could not resolve organizationId. Response: {data}")
+    print(f"[post_buffer] organizationId: {org_id}")
+    return org_id
+
+
 def get_channels(token: str, services: list) -> list:
     """Return Buffer channel dicts for the requested services."""
-    data = gql(token, GET_CHANNELS)
+    org_id = get_org_id(token)
+    data = gql(token, GET_CHANNELS, {"orgId": org_id})
     all_channels = data.get("channels", [])
     if not all_channels:
         raise SystemExit(
