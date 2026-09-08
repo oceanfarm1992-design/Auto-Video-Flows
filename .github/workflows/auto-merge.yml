@@ -21,20 +21,32 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-approve minor and patch updates
-        if: |
-          steps.meta.outputs.update-type == 'version-update:semver-minor' ||
-          steps.meta.outputs.update-type == 'version-update:semver-patch'
+      - name: Decide whether to auto-merge
+        id: decision
+        run: |
+          TYPE="${{ steps.meta.outputs.update-type }}"
+          ECOSYSTEM="${{ steps.meta.outputs.package-ecosystem }}"
+          # Always merge minor/patch for any ecosystem.
+          # Also merge major bumps for github-actions (they are versioned tags,
+          # not semver APIs — v4→v7 never breaks caller workflows).
+          if [[ "$TYPE" == "version-update:semver-minor" ]] || \
+             [[ "$TYPE" == "version-update:semver-patch" ]] || \
+             [[ "$ECOSYSTEM" == "github-actions" ]]; then
+            echo "merge=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "merge=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Auto-approve
+        if: steps.decision.outputs.merge == 'true'
         run: gh pr review --approve "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Auto-merge minor and patch updates
-        if: |
-          steps.meta.outputs.update-type == 'version-update:semver-minor' ||
-          steps.meta.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr merge --auto --squash "$PR_URL"
+      - name: Auto-merge
+        if: steps.decision.outputs.merge == 'true'
+        run: gh pr merge --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
