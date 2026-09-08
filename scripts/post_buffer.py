@@ -114,42 +114,30 @@ mutation CreatePost($channelId: String!, $text: String!, $mediaUrls: [String!]) 
 
 
 def get_org_id(token: str) -> str:
-    # Try 1: account.currentOrganization
-    try:
-        data = gql(token, GET_ORG_FULL)
-        org_id = (data.get("account", {})
-                      .get("currentOrganization", {})
-                      .get("id"))
-        if org_id:
-            print(f"[post_buffer] organizationId (from currentOrganization): {org_id}")
-            return org_id
-    except SystemExit:
-        pass
+    # Prefer the env var set as BUFFER_ORG_ID secret — fastest, no extra API call
+    org_id = os.environ.get("BUFFER_ORG_ID", "").strip()
+    if org_id:
+        print(f"[post_buffer] organizationId (from env): {org_id}")
+        return org_id
 
-    # Try 2: account.id (often doubles as org ID in Buffer's system)
-    try:
-        data = gql(token, GET_ORG_SIMPLE)
-        org_id = data.get("account", {}).get("id")
-        if org_id:
-            print(f"[post_buffer] organizationId (from account.id): {org_id}")
-            return org_id
-    except SystemExit:
-        pass
-
-    # Try 3: organizations list
-    try:
-        data = gql(token, GET_ORGS)
-        orgs = data.get("organizations", [])
-        if orgs:
-            org_id = orgs[0]["id"]
-            print(f"[post_buffer] organizationId (from organizations[0]): {org_id}")
-            return org_id
-    except SystemExit:
-        pass
+    # Fallback: query the API
+    for query, path in [
+        (GET_ORG_FULL,   lambda d: d.get("account", {}).get("currentOrganization", {}).get("id")),
+        (GET_ORG_SIMPLE, lambda d: d.get("account", {}).get("id")),
+        (GET_ORGS,       lambda d: (d.get("organizations") or [{}])[0].get("id")),
+    ]:
+        try:
+            data = gql(token, query)
+            oid = path(data)
+            if oid:
+                print(f"[post_buffer] organizationId (from API): {oid}")
+                return oid
+        except SystemExit:
+            pass
 
     raise SystemExit(
         "[post_buffer] Could not resolve organizationId. "
-        "Check that BUFFER_API_KEY has the required scopes at developers.buffer.com."
+        "Set BUFFER_ORG_ID as a GitHub Secret or check token scopes."
     )
 
 
