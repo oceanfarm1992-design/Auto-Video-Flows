@@ -54,13 +54,30 @@ def gql(token: str, query: str, variables: dict = None) -> dict:
     return body.get("data", {})
 
 
-GET_ORG = """
+GET_ORG_FULL = """
 query {
   account {
     id
     currentOrganization {
       id
     }
+  }
+}
+"""
+
+GET_ORG_SIMPLE = """
+query {
+  account {
+    id
+  }
+}
+"""
+
+GET_ORGS = """
+query {
+  organizations {
+    id
+    name
   }
 }
 """
@@ -97,14 +114,43 @@ mutation CreatePost($channelId: String!, $text: String!, $mediaUrls: [String!]) 
 
 
 def get_org_id(token: str) -> str:
-    data = gql(token, GET_ORG)
-    org_id = (data.get("account", {})
-                  .get("currentOrganization", {})
-                  .get("id"))
-    if not org_id:
-        raise SystemExit(f"[post_buffer] Could not resolve organizationId. Response: {data}")
-    print(f"[post_buffer] organizationId: {org_id}")
-    return org_id
+    # Try 1: account.currentOrganization
+    try:
+        data = gql(token, GET_ORG_FULL)
+        org_id = (data.get("account", {})
+                      .get("currentOrganization", {})
+                      .get("id"))
+        if org_id:
+            print(f"[post_buffer] organizationId (from currentOrganization): {org_id}")
+            return org_id
+    except SystemExit:
+        pass
+
+    # Try 2: account.id (often doubles as org ID in Buffer's system)
+    try:
+        data = gql(token, GET_ORG_SIMPLE)
+        org_id = data.get("account", {}).get("id")
+        if org_id:
+            print(f"[post_buffer] organizationId (from account.id): {org_id}")
+            return org_id
+    except SystemExit:
+        pass
+
+    # Try 3: organizations list
+    try:
+        data = gql(token, GET_ORGS)
+        orgs = data.get("organizations", [])
+        if orgs:
+            org_id = orgs[0]["id"]
+            print(f"[post_buffer] organizationId (from organizations[0]): {org_id}")
+            return org_id
+    except SystemExit:
+        pass
+
+    raise SystemExit(
+        "[post_buffer] Could not resolve organizationId. "
+        "Check that BUFFER_API_KEY has the required scopes at developers.buffer.com."
+    )
 
 
 def get_channels(token: str, services: list) -> list:
