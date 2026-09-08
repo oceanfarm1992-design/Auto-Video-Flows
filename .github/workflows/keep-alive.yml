@@ -1,0 +1,29 @@
+name: keep-alive
+
+# GitHub disables scheduled workflows on repos with no activity for 60 days.
+# The daily-short workflow commits logs every day, so this should never trigger
+# under normal operation — but if the pipeline fails for several weeks this
+# monthly commit keeps the schedule from being disabled.
+on:
+  schedule:
+    - cron: "0 10 1 * *"   # 1st of every month at 10:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  keep-alive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Touch keep-alive timestamp
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p .github
+          date -u +%Y-%m-%dT%H:%M:%SZ > .github/keep-alive
+          git add .github/keep-alive
+          git commit -m "chore: keep workflows alive $(date -u +%Y-%m)" || echo "nothing to commit"
+          git push
