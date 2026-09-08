@@ -56,7 +56,7 @@ def build_filter(freqs: list, duration: float) -> str:
     labels.append("[sub]")
 
     n        = len(labels)
-    fade_out = max(0.0, duration - 3.5)
+    fade_out = max(0.0, duration - 5.0)
 
     mix = (
         "".join(labels) + f"amix=inputs={n}:normalize=0,"
@@ -78,7 +78,7 @@ def build_filter(freqs: list, duration: float) -> str:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out",      default="build/music.mp3")
-    ap.add_argument("--duration", type=float, default=30.0)
+    ap.add_argument("--duration", type=float, default=90.0)
     ap.add_argument("--mood",     type=int,   default=None)
     args = ap.parse_args()
 
