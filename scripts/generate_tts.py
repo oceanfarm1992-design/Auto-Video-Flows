@@ -1,84 +1,166 @@
 #!/usr/bin/env python3
 """
-Stage 3: generate a voiceover WAV from the script text.
+Stage: generate a voiceover WAV from the script text.
 
-Priority order:
-  1. OpenAI TTS (tts-1-hd) — best quality; requires OPENAI_API_KEY
-  2. Piper TTS (offline, no key needed) — good quality fallback
-  3. espeak-ng — last resort, always available on Ubuntu runners
+Engines, tried in order (first available wins unless --engine forces one):
+  1. StyleTTS2 (MIT license) — clones the channel owner's own voice from a private
+     reference sample (fetched at runtime via VOICE_REPO_PAT, never stored in this
+     repo). Primary voice.
+  2. Kokoro-82M (https://huggingface.co/hexgrad/Kokoro-82M) — open-weights neural
+     TTS, runs fully offline once its checkpoint is cached, no API key or per-run
+     cost. Fallback if StyleTTS2 fails to load (e.g. VOICE_REPO_PAT not set, or the
+     clone step errors).
+  3. Piper (https://github.com/rhasspy/piper) — fast, fully-offline neural TTS,
+     no API key needed. Voice models are downloaded once from HuggingFace and
+     cached in ./voices/. Fallback if Kokoro also fails to load.
+  4. espeak-ng — apt-installable on Ubuntu runners, always works, worst quality.
+     Last-resort so the daily pipeline never fails outright.
+
+OpenAI TTS is still supported via --engine openai for manual use, but is no longer
+in the default auto chain.
 
 Output: build/voice.wav
 
 Usage:
     python scripts/generate_tts.py
-    python scripts/generate_tts.py --voice shimmer          # OpenAI voice
-    python scripts/generate_tts.py --fallback piper
-    python scripts/generate_tts.py --fallback espeak
+    python scripts/generate_tts.py --engine styletts2
+    python scripts/generate_tts.py --engine kokoro --voice am_fenrir
+    python scripts/generate_tts.py --engine piper --voice en_US-ryan-high
+    python scripts/generate_tts.py --engine espeak
 """
 import argparse
 import os
 import subprocess
 import sys
-import tempfile
-from pathlib import Path
 
 import requests
 
-# ── OpenAI TTS ──────────────────────────────────────────────────────────────
+OPENAI_AVAILABLE = False
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    pass
 
-OPENAI_VOICES = ["onyx", "nova", "echo", "alloy", "fable", "shimmer"]
-# onyx: deep, authoritative — great for motivational content
-# nova: warm female voice
-# echo: balanced male voice
+_KOKORO_PIPELINE = None
+_KOKORO_LANG = None
+_STYLETTS2_MODEL = None
+_VOICE_REF_PATH = None
 
-def run_openai_tts(text: str, out_wav: str, voice: str = "onyx", model: str = "tts-1-hd"):
-    try:
-        from openai import OpenAI
-    except ImportError:
-        raise RuntimeError("openai package not installed")
+VOICE_REF_CACHE = "build/.voice_reference.mp3"
+VOICE_REF_REPO = "oceanfarm1992-design/voice-reference-audio"
+VOICE_REF_FILE = "reference_voice.mp3"
 
-    api_key = os.environ.get("OPENAI_API_KEY")
-    if not api_key:
-        raise RuntimeError("OPENAI_API_KEY not set")
-
-    client = OpenAI(api_key=api_key)
-    print(f"[generate_tts] OpenAI TTS: model={model} voice={voice}")
-
-    # OpenAI returns mp3 by default; we convert to WAV via ffmpeg
-    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-        tmp_path = tmp.name
-
-    try:
-        with client.audio.speech.with_streaming_response.create(
-            model=model,
-            voice=voice,
-            input=text,
-            speed=1.0,  # natural speed — slowdown makes voice sound flat
-        ) as resp:
-            resp.stream_to_file(tmp_path)
-
-        # convert mp3 → wav (16kHz mono, matches Piper output format)
-        cmd = ["ffmpeg", "-y", "-i", tmp_path,
-               "-ar", "22050", "-ac", "1", out_wav]
-        proc = subprocess.run(cmd, capture_output=True)
-        if proc.returncode != 0:
-            raise RuntimeError(f"ffmpeg mp3→wav failed: {proc.stderr.decode()}")
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-
-# ── Piper TTS ───────────────────────────────────────────────────────────────
-
+# HuggingFace raw file base for piper voices.
+# Path layout: <lang>/<lang_region>/<name>/<quality>/<voice>.onnx[.json]
 HF_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 VOICE_PATHS = {
     "en_US-lessac-medium": "en/en_US/lessac/medium/en_US-lessac-medium.onnx",
-    "en_US-amy-medium":    "en/en_US/amy/medium/en_US-amy-medium.onnx",
-    "en_US-ryan-high":     "en/en_US/ryan/high/en_US-ryan-high.onnx",
+    "en_US-amy-medium": "en/en_US/amy/medium/en_US-amy-medium.onnx",
+    "en_US-ryan-high": "en/en_US/ryan/high/en_US-ryan-high.onnx",
 }
+
 HEADERS = {"User-Agent": "yt-shorts-generator/1.0"}
 
 
-def _download(url, dest):
+# --------------------------------------------------------------------------- OpenAI
+def run_openai_tts(text, out_wav, model="tts-1", voice="onyx", instructions=None):
+    api_key = os.environ.get("OPENAI_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set.")
+    if not OPENAI_AVAILABLE:
+        raise RuntimeError("openai package not installed.")
+
+    client = OpenAI(api_key=api_key)
+    kwargs = dict(model=model, voice=voice, input=text, response_format="wav")
+    if instructions:
+        kwargs["instructions"] = instructions
+    print(f"[generate_tts] calling OpenAI TTS ({model}, voice={voice}) ...")
+    with client.audio.speech.with_streaming_response.create(**kwargs) as response:
+        response.stream_to_file(out_wav)
+
+
+# ---------------------------------------------------------------------------- Kokoro
+def _get_kokoro_pipeline(lang_code):
+    global _KOKORO_PIPELINE, _KOKORO_LANG
+    if _KOKORO_PIPELINE is None or _KOKORO_LANG != lang_code:
+        from kokoro import KPipeline
+        print("[generate_tts] loading Kokoro-82M ...")
+        _KOKORO_PIPELINE = KPipeline(lang_code=lang_code)
+        _KOKORO_LANG = lang_code
+    return _KOKORO_PIPELINE
+
+
+def run_kokoro(text, out_wav, voice="am_fenrir", lang_code="a"):
+    import numpy as np
+    import soundfile as sf
+
+    pipeline = _get_kokoro_pipeline(lang_code)
+    print(f"[generate_tts] calling Kokoro TTS (voice={voice}) ...")
+    chunks = [audio for _, _, audio in pipeline(text, voice=voice)]
+    full = np.concatenate(chunks) if len(chunks) > 1 else chunks[0]
+    sf.write(out_wav, full, 24000)
+
+
+# ------------------------------------------------------------------------- StyleTTS2
+def _fetch_voice_reference(cache_path=VOICE_REF_CACHE):
+    """Download the private reference voice clip at runtime via a fine-grained,
+    read-only PAT scoped to a separate private repo. Never committed anywhere —
+    the clip is personal and this repo is public."""
+    global _VOICE_REF_PATH
+    if _VOICE_REF_PATH and os.path.exists(_VOICE_REF_PATH):
+        return _VOICE_REF_PATH
+    pat = os.environ.get("VOICE_REPO_PAT", "").strip()
+    if not pat:
+        raise RuntimeError("VOICE_REPO_PAT is not set — cannot fetch the cloned-voice reference sample.")
+    url = f"https://api.github.com/repos/{VOICE_REF_REPO}/contents/{VOICE_REF_FILE}"
+    headers = {"Authorization": f"Bearer {pat}", "Accept": "application/vnd.github.raw+json"}
+    resp = requests.get(url, headers=headers, timeout=60)
+    resp.raise_for_status()
+    os.makedirs(os.path.dirname(cache_path) or ".", exist_ok=True)
+    with open(cache_path, "wb") as f:
+        f.write(resp.content)
+    _VOICE_REF_PATH = cache_path
+    return cache_path
+
+
+def _get_styletts2_model():
+    global _STYLETTS2_MODEL
+    if _STYLETTS2_MODEL is None:
+        import functools
+
+        import nltk
+        import torch
+
+        # styletts2's TextCleaner debug-prints raw phoneme text (including rare IPA
+        # characters) on any symbol outside its vocabulary — harmless on Linux CI
+        # (UTF-8 locale) but crashes on Windows consoles (cp1252). Widen stdout
+        # defensively so local runs behave the same as CI.
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+        # styletts2's bundled checkpoint loader calls torch.load() without
+        # weights_only=False. PyTorch >=2.6 defaults weights_only=True, which
+        # rejects this (older, trusted, official StyleTTS2/LibriTTS) checkpoint
+        # format. Patch the default rather than editing the installed package.
+        torch.load = functools.partial(torch.load, weights_only=False)
+        nltk.download("punkt_tab", quiet=True)
+
+        from styletts2.tts import StyleTTS2
+
+        print("[generate_tts] loading StyleTTS2 (cloned voice) ...")
+        _STYLETTS2_MODEL = StyleTTS2()
+    return _STYLETTS2_MODEL
+
+
+def run_styletts2(text, out_wav):
+    ref_path = _fetch_voice_reference()
+    model = _get_styletts2_model()
+    print("[generate_tts] calling StyleTTS2 (cloned voice) ...")
+    model.inference(text, target_voice_path=ref_path, output_wav_file=out_wav)
+
+
+# ----------------------------------------------------------------------------- Piper
+def download(url, dest):
     if os.path.exists(dest) and os.path.getsize(dest) > 0:
         return
     print(f"[generate_tts] downloading {url}")
@@ -89,76 +171,97 @@ def _download(url, dest):
                 f.write(chunk)
 
 
-def _ensure_piper_voice(voice, voices_dir):
+def ensure_voice(voice, voices_dir):
     if voice not in VOICE_PATHS:
-        raise RuntimeError(f"Unknown Piper voice '{voice}'. Known: {list(VOICE_PATHS)}")
+        raise SystemExit(f"Unknown voice '{voice}'. Known: {list(VOICE_PATHS)}")
     os.makedirs(voices_dir, exist_ok=True)
     onnx_rel = VOICE_PATHS[voice]
     onnx_path = os.path.join(voices_dir, os.path.basename(onnx_rel))
-    _download(f"{HF_BASE}/{onnx_rel}", onnx_path)
-    _download(f"{HF_BASE}/{onnx_rel}.json", onnx_path + ".json")
+    json_path = onnx_path + ".json"
+    download(f"{HF_BASE}/{onnx_rel}", onnx_path)
+    download(f"{HF_BASE}/{onnx_rel}.json", json_path)
     return onnx_path
 
 
-def run_piper(text: str, out_wav: str, voice: str = "en_US-amy-medium",
-              voices_dir: str = "voices"):
-    onnx_path = _ensure_piper_voice(voice, voices_dir)
-    cmd = ["piper", "--model", onnx_path, "--output_file", out_wav,
-           "--length_scale", "1.0", "--sentence_silence", "0.3"]
-    print(f"[generate_tts] Piper TTS: {' '.join(cmd)}")
+def run_piper(text, onnx_path, out_wav, length_scale=1.0, sentence_silence=0.3):
+    cmd = [
+        "piper", "--model", onnx_path, "--output_file", out_wav,
+        "--length_scale", str(length_scale),
+        "--sentence_silence", str(sentence_silence),
+    ]
+    print(f"[generate_tts] running: {' '.join(cmd)}")
     proc = subprocess.run(cmd, input=text.encode("utf-8"), capture_output=True)
     if proc.returncode != 0:
-        raise RuntimeError(f"piper failed: {proc.stderr.decode('utf-8', 'replace')}")
+        sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
+        raise SystemExit(f"piper failed with code {proc.returncode}")
 
-# ── espeak fallback ──────────────────────────────────────────────────────────
 
-def run_espeak(text: str, out_wav: str):
+# ---------------------------------------------------------------------------- espeak
+def run_espeak(text, out_wav):
     cmd = ["espeak-ng", "-v", "en-us+m3", "-s", "135", "-p", "45", "-g", "6",
            "-w", out_wav, text]
-    print("[generate_tts] espeak-ng fallback")
+    print("[generate_tts] fallback espeak-ng")
     proc = subprocess.run(cmd, capture_output=True)
     if proc.returncode != 0:
         sys.stderr.write(proc.stderr.decode("utf-8", "replace"))
         raise SystemExit(f"espeak-ng failed with code {proc.returncode}")
 
-# ── main ─────────────────────────────────────────────────────────────────────
+
+def synth(text, out, engines, openai_model, openai_voice, instructions,
+          piper_voice, voices_dir, kokoro_voice, kokoro_lang):
+    """Synthesize `text` to `out`, trying each engine in order until one succeeds."""
+    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+    last_error = None
+    for engine in engines:
+        try:
+            if engine == "styletts2":
+                run_styletts2(text, out)
+            elif engine == "kokoro":
+                run_kokoro(text, out, kokoro_voice, kokoro_lang)
+            elif engine == "openai":
+                run_openai_tts(text, out, openai_model, openai_voice, instructions)
+            elif engine == "piper":
+                onnx_path = ensure_voice(piper_voice, voices_dir)
+                run_piper(text, onnx_path, out)
+            elif engine == "espeak":
+                run_espeak(text, out)
+            if os.path.exists(out) and os.path.getsize(out) > 0:
+                print(f"[generate_tts] wrote {out} (engine={engine})")
+                return
+        except Exception as exc:  # noqa: BLE001 — try the next engine
+            last_error = exc
+            print(f"[generate_tts] {engine} failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+    raise SystemExit(f"All TTS engines failed. Last error: {last_error}")
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", default="build/script.txt")
     ap.add_argument("--out", default="build/voice.wav")
-    ap.add_argument("--voice", default="echo",
-                    help="OpenAI voice name (echo/onyx/nova/fable/alloy) or Piper voice ID")
+    ap.add_argument("--engine", choices=["auto", "styletts2", "kokoro", "openai", "piper", "espeak"], default="auto",
+                    help="auto tries StyleTTS2 (cloned voice), then Kokoro, then Piper, then espeak-ng.")
+    ap.add_argument("--voice", default=None,
+                    help="Kokoro voice name, OpenAI voice name, or Piper voice ID, depending on --engine.")
     ap.add_argument("--voices-dir", default="voices")
+    ap.add_argument("--openai-model", default="tts-1")
     ap.add_argument("--fallback", choices=["piper", "espeak"], default=None,
-                    help="Skip OpenAI and use piper or espeak instead.")
-    ap.add_argument("--openai-model", default="tts-1")  # tts-1 = $15/1M chars vs tts-1-hd $30/1M
+                    help="Deprecated alias for --engine.")
     args = ap.parse_args()
 
-    text = Path(args.script).read_text(encoding="utf-8").strip()
-    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
+    if args.fallback:
+        args.engine = args.fallback
 
-    if args.fallback == "espeak":
-        run_espeak(text, args.out)
-    elif args.fallback == "piper":
-        piper_voice = args.voice if args.voice in VOICE_PATHS else "en_US-amy-medium"
-        run_piper(text, args.out, piper_voice, args.voices_dir)
-    else:
-        # Try OpenAI first, fall back to Piper, then espeak
-        try:
-            oai_voice = args.voice if args.voice in OPENAI_VOICES else "onyx"
-            run_openai_tts(text, args.out, voice=oai_voice, model=args.openai_model)
-        except Exception as e:
-            print(f"[generate_tts] OpenAI TTS failed ({e}), trying Piper...")
-            try:
-                run_piper(text, args.out, "en_US-amy-medium", args.voices_dir)
-            except Exception as e2:
-                print(f"[generate_tts] Piper failed ({e2}), using espeak...")
-                run_espeak(text, args.out)
+    with open(args.script, encoding="utf-8") as f:
+        text = f.read().strip()
 
-    if not (os.path.exists(args.out) and os.path.getsize(args.out) > 0):
-        raise SystemExit("TTS produced no audio.")
-    print(f"[generate_tts] wrote {args.out}")
+    kokoro_voice = args.voice if args.engine in ("auto", "kokoro") and args.voice else "am_fenrir"
+    piper_voice = args.voice if args.voice in VOICE_PATHS else "en_US-amy-medium"
+    openai_voice = args.voice if args.voice else "onyx"
+    engines = [args.engine] if args.engine != "auto" else ["styletts2", "kokoro", "piper", "espeak"]
+
+    synth(text, args.out, engines=engines, openai_model=args.openai_model,
+          openai_voice=openai_voice, instructions=None, piper_voice=piper_voice,
+          voices_dir=args.voices_dir, kokoro_voice=kokoro_voice, kokoro_lang="a")
 
 
 if __name__ == "__main__":

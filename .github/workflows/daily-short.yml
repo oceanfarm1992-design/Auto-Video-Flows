@@ -39,7 +39,11 @@ jobs:
           sudo apt-get install -y ffmpeg fonts-dejavu-core espeak-ng
 
       - name: Install python deps
-        run: pip install -r requirements.txt
+        run: |
+          # CPU-only torch first — StyleTTS2/Kokoro depend on it, and the default
+          # PyPI wheel bundles CUDA and is far larger than this runner needs.
+          pip install torch==2.8.0+cpu torchaudio==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
 
       # ── Stage 1: AI generates a fresh historical success story ──────────────
       - name: Generate script (OpenAI GPT)
@@ -53,13 +57,12 @@ jobs:
           python scripts/generate_script_ai.py $TOPIC_ARG
 
       # ── Stage 2: TTS first (so captions + footage can use real audio duration) ─
+      # Tries StyleTTS2 (cloned voice) first, then falls back through Kokoro,
+      # Piper, and espeak-ng in one call before giving up.
       - name: Generate TTS voiceover
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          python scripts/generate_tts.py \
-            || python scripts/generate_tts.py --fallback piper \
-            || python scripts/generate_tts.py --fallback espeak
+          VOICE_REPO_PAT: ${{ secrets.VOICE_REPO_PAT }}
+        run: python scripts/generate_tts.py
 
       # ── Stage 3: Whisper-synced captions (word-level timestamps) ─────────────
       - name: Generate captions (Whisper word-level sync)

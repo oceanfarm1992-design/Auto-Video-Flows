@@ -2,9 +2,24 @@
 requests>=2.34.2
 openai>=3.8.0
 
+# TTS: StyleTTS2 (MIT license) clones the channel owner's own voice from a private
+# reference sample fetched at runtime (see VOICE_REPO_PAT in scripts/generate_tts.py
+# and .github/workflows/daily-short.yml) — never stored in this public repo. Primary
+# production voice. Pulls in a large dependency tree (torch, transformers, gruut,
+# nltk, scikit-learn, and more) — install the CPU-only torch wheel first in CI (see
+# .github/workflows/daily-short.yml) to avoid the much larger CUDA build.
+styletts2>=0.1.6
+
+# TTS: Kokoro-82M (open-weights neural TTS) — automatic fallback voice if StyleTTS2
+# fails to load (e.g. the voice-reference fetch errors). Fully offline once its
+# checkpoint is cached, no per-run API cost.
+kokoro>=0.9.4
+soundfile>=0.12.1
+
 # TTS: piper-tts ships prebuilt wheels for linux and runs fully offline (no API key).
 # VERIFY: exact package name / version. On PyPI the package is "piper-tts" and the CLI entrypoint is "piper".
 # Voice model files are downloaded separately at runtime (see scripts/generate_tts.py).
+# Fallback if Kokoro also fails to load.
 piper-tts>=1.8.0
 
 # GitHub secret encryption (write-back scripts) uses libsodium sealed boxes.

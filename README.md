@@ -21,7 +21,7 @@ Each day a GitHub Actions cron job runs these stages in order:
 |-------|--------|--------------|
 | 1 | `fetch_script_text.py` | Picks a public-domain excerpt (Marcus Aurelius / Emerson / Seneca) from `config/sources.json`, rotating by date. Wraps it with a short spoken intro + reflective outro so the narration runs ~40s (not an abrupt ~20s). Also writes per-platform caption files. |
 | 2 | `fetch_footage.py` | Fetches a **theme-matched, HD** B-roll clip. Tries **Pexels → Pixabay**, searching by the quote's `footage_query` so the footage is relevant. If no suitable clip is found, falls back to `generate_animation.py` — a **generated cinematic gradient** (always on-tone, never random). archive.org NASA footage is still available but off by default. |
-| 3 | `generate_tts.py` | Generates the voiceover with **Piper TTS** (offline, no API key), default voice `en_US-amy-medium` (natural). Falls back to `espeak-ng` if Piper fails. |
+| 3 | `generate_tts.py` | Generates the voiceover with **StyleTTS2**, cloning the channel owner's own voice from a private reference sample fetched at runtime via `VOICE_REPO_PAT`. Falls back to **Kokoro-82M** (offline neural TTS), then **Piper**, then `espeak-ng` if earlier engines fail. |
 | 4 | `generate_captions.py` | Builds a burned-in `.srt` from the known script text + measured audio duration (no transcription needed). |
 | 5a | `generate_music.py` | Synthesizes a soft **ambient music pad** with ffmpeg (`build/music.mp3`) — no assets needed. Skipped in favour of real tracks if you drop any in `assets/music/`. |
 | 5b | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in **centre-screen** captions + a hook title card + end-card CTA; **denoise + loudness-normalize** the voice, and mix the **background music** under it. |
@@ -62,7 +62,9 @@ nothing to touch daily.
   the guaranteed fallback and never fails. archive.org **NASA** public-domain footage is
   still available (`--source archive`, or add `"archive"` back to `footage.source_order`)
   but is off by default. The `prelinger` collection was removed (off-tone, low-res).
-- **Voice:** Piper TTS — open-source, offline, CI-friendly.
+- **Voice:** StyleTTS2, cloning the channel owner's own voice from a private reference
+  sample (never stored in this public repo, fetched at runtime). Falls back to
+  Kokoro-82M, then Piper, then `espeak-ng` — open-source, offline, CI-friendly.
 - **No copyrighted material is downloaded or reused.** (Pexels/Pixabay clips are free-to-
   use under their own licenses; NASA footage is public domain.)
 
@@ -76,6 +78,7 @@ Create these under **Settings → Secrets and variables → Actions**:
 | `SHEET_WEBHOOK_TOKEN` | `post_sheet.py` | *Optional.* Shared secret; must match the token in `sheet_webhook.gs` so only your pipeline can write. |
 | `PEXELS_API_KEY` | `fetch_footage.py` | *Optional.* Free key from https://www.pexels.com/api/ for HD theme-matched footage (tried first). |
 | `PIXABAY_API_KEY` | `fetch_footage.py` | *Optional.* Free key from https://pixabay.com/api/docs/ (tried second). |
+| `VOICE_REPO_PAT` | `generate_tts.py` | *Optional.* Fine-grained, read-only GitHub PAT scoped to a separate private repo holding the cloned-voice reference sample. Without it, TTS falls back to Kokoro-82M. **Never paste this token into chat or commit it anywhere** — add it directly via GitHub Settings → Secrets and variables → Actions. |
 
 Footage degrades gracefully: with **no** stock key set, `fetch_footage.py` falls back to
 free archive.org NASA footage automatically. Set at least one stock key for the best
@@ -109,7 +112,8 @@ sudo apt-get install -y ffmpeg fonts-dejavu-core espeak-ng
 python scripts/fetch_script_text.py
 python scripts/fetch_footage.py          # PEXELS_API_KEY/PIXABAY_API_KEY optional; falls back to a generated animation
 # python scripts/fetch_footage.py --source animate   # force the generated gradient background
-python scripts/generate_tts.py          # or: --fallback espeak
+python scripts/generate_tts.py          # tries StyleTTS2 (needs VOICE_REPO_PAT) -> Kokoro -> Piper -> espeak
+# python scripts/generate_tts.py --engine kokoro     # skip the voice clone, force a specific engine
 python scripts/generate_captions.py
 python scripts/generate_music.py       # ambient pad -> build/music.mp3 (or drop tracks in assets/music/)
 python scripts/assemble_video.py
