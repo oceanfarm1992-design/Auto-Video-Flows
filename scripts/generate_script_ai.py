@@ -2,9 +2,19 @@
 """
 Stage 1 (AI): Generate a historical success story script using OpenAI GPT.
 
-Picks a historical figure from config/topics.json (avoiding recently used ones),
-then calls GPT to write a unique narration, hook, platform captions, SEO metadata,
-hashtags, and a footage search query tailored to the story.
+Topic selection tries, in order:
+  1. Trending: a web-search-grounded GPT call (see pick_trending_topic) looks at
+     today's YouTube "most popular" chart plus live web search and picks ONE real,
+     specific, named person/organization whose current relevance (an achievement,
+     comeback, viral moment, milestone, anniversary) fits a motivational
+     success-story short. It must stay biographically factual — no invented
+     "trending reason" if none is verifiable.
+  2. Static: config/topics.json's curated historical-figures list (avoiding
+     recently used ones), same as before. Used whenever trending selection finds
+     no good fit, errors, or --topic-index forces a specific static entry.
+
+Either way, GPT then writes a unique narration, hook, platform captions, SEO
+metadata, hashtags, and a footage search query tailored to the story.
 
 Output:
     build/script.json   – full structured data consumed by later pipeline stages
@@ -12,7 +22,8 @@ Output:
 
 Usage:
     python scripts/generate_script_ai.py
-    python scripts/generate_script_ai.py --topic-index 5   # force a specific topic
+    python scripts/generate_script_ai.py --topic-index 5     # force a specific static topic (skips trending)
+    python scripts/generate_script_ai.py --no-trending       # static topic only
     python scripts/generate_script_ai.py --model gpt-4o-mini
 """
 import argparse
@@ -28,9 +39,31 @@ try:
 except ImportError:
     sys.exit("openai package not installed. Run: pip install openai")
 
+import fetch_trending_topic
+
 USED_LOG = Path("logs/used_topics.json")
 TOPICS_CONFIG = Path("config/topics.json")
 BUILD_DIR = Path("build")
+
+TRENDING_SYSTEM_PROMPT = (
+    "You find real, current angles for a motivational short-form video series about "
+    "historical and modern success stories. Use web search to check what's genuinely "
+    "trending or newsworthy right now. Cross-reference with the YouTube trending "
+    "titles you're given, but you are not limited to them.\n\n"
+    "Pick ONE real, specific, named person or organization whose CURRENT relevance "
+    "(a recent achievement, comeback, viral moment, record, milestone, or anniversary "
+    "you can verify) would make a compelling success-story video today. The "
+    "biographical facts you cite must be real and verifiable — never invent a "
+    "'trending reason' you can't confirm.\n\n"
+    "If nothing right now fits this format well, say so honestly.\n\n"
+    "Respond with ONLY valid JSON (no markdown fences), exactly these keys:\n"
+    '{"fit": true | false, "name": "...", "field": "...", "theme": "...", '
+    '"era": "modern", "trend_reason": "...", "hook_line": "..."}\n'
+    '"trend_reason" is one sentence on why this is relevant right now (empty string '
+    'if fit is false). "hook_line" is a punchy ALL-CAPS-style spoken opening line '
+    "(max ~15 words) that leads with that current relevance to stop the scroll — "
+    'leave it an empty string if fit is false.'
+)
 
 SYSTEM_PROMPT = (
     "You are a world-class motivational video scriptwriter. "
@@ -66,12 +99,71 @@ def pick_topic(topics: list, force_index: int | None) -> dict:
         available = topics  # full reset once all used
     return random.choice(available)
 
+def parse_json_response(text: str) -> dict:
+    text = text.strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:]
+    return json.loads(text.strip())
+
+
+def pick_trending_topic(client: OpenAI, model: str) -> dict | None:
+    """Try to find a real, current angle via web search + YouTube's trending
+    chart. Returns a topic dict (name/field/theme/era + trend_reason/hook_line)
+    on a good fit, or None if nothing fits, the call fails, or the response
+    can't be parsed — any of which just falls through to the static list."""
+    youtube_titles = fetch_trending_topic.get_youtube_trending(
+        os.environ.get("YOUTUBE_API_KEY", "")
+    )
+    user_content = "Today's YouTube trending video titles:\n" + (
+        "\n".join(f"- {t}" for t in youtube_titles) if youtube_titles
+        else "(none available — rely on web search alone)"
+    )
+    try:
+        response = client.responses.create(
+            model=model,
+            tools=[{"type": "web_search"}],
+            input=[
+                {"role": "system", "content": TRENDING_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+        )
+        result = parse_json_response(response.output_text)
+    except Exception as exc:  # noqa: BLE001 — trending is a nice-to-have, never fatal
+        print(f"[generate_script_ai] trending topic lookup failed ({type(exc).__name__}: {exc}); "
+              f"falling back to the static topic list.")
+        return None
+
+    if not result.get("fit") or not result.get("name"):
+        print("[generate_script_ai] No good trending fit today; falling back to the static topic list.")
+        return None
+
+    return {
+        "name": result["name"],
+        "field": result.get("field", "achievement"),
+        "theme": result.get("theme", "current success"),
+        "era": result.get("era", "modern"),
+        "trend_reason": result.get("trend_reason", ""),
+        "hook_line": result.get("hook_line", ""),
+    }
+
+
 def build_prompt(topic: dict, story_format: str) -> str:
     name = topic["name"]
     field = topic["field"]
     theme = topic["theme"]
     era = topic["era"]
-    return f"""Write a motivational short-form video script about {name} ({era}), theme: "{theme}", field: {field}, format: {story_format.replace("_", " ")}.
+    trend_reason = topic.get("trend_reason")
+    hook_line = topic.get("hook_line")
+    trend_note = (
+        f'\n\nThis story is TRENDING right now: {trend_reason}. Open with a hook '
+        f'built around that (you may use or adapt this line: "{hook_line}") — but '
+        f"every biographical fact you state must still be real and verifiable; "
+        f"don't invent details just because the topic is trending."
+        if trend_reason else ""
+    )
+    return f"""Write a motivational short-form video script about {name} ({era}), theme: "{theme}", field: {field}, format: {story_format.replace("_", " ")}.{trend_note}
 
 Return ONLY valid JSON with these exact keys (no markdown, no code fences):
 
@@ -149,6 +241,10 @@ def main():
     ap.add_argument("--out", default=str(BUILD_DIR))
     ap.add_argument("--topic-index", type=int, default=None)
     ap.add_argument("--model", default="gpt-4o-mini")
+    ap.add_argument("--trending-model", default="gpt-4o",
+                     help="Model used for trending-topic selection (needs web search).")
+    ap.add_argument("--no-trending", action="store_true",
+                     help="Skip trending lookup and always use the static topic list.")
     args = ap.parse_args()
 
     api_key = os.environ.get("OPENAI_API_KEY")
@@ -161,12 +257,24 @@ def main():
     topics = config["historical_figures"]
     formats = config["story_formats"]
 
-    topic = pick_topic(topics, args.topic_index)
+    client = OpenAI(api_key=api_key)
+
+    topic_source = "static"
+    topic = None
+    if args.topic_index is None and not args.no_trending:
+        topic = pick_trending_topic(client, args.trending_model)
+        if topic:
+            topic_source = "trending"
+            print(f"[generate_script_ai] Trending fit: {topic['name']} — {topic['trend_reason']}")
+
+    if topic is None:
+        topic = pick_topic(topics, args.topic_index)
+
     story_format = random.choice(formats)
 
-    print(f"[generate_script_ai] Topic: {topic['name']} | Format: {story_format} | Model: {args.model}")
+    print(f"[generate_script_ai] Topic: {topic['name']} | Source: {topic_source} | "
+          f"Format: {story_format} | Model: {args.model}")
 
-    client = OpenAI(api_key=api_key)
     prompt = build_prompt(topic, story_format)
     data = call_openai(client, prompt, args.model)
 
@@ -175,6 +283,7 @@ def main():
     data.setdefault("hook", data.get("title", topic["name"].upper()))
     data["text"] = data.get("lesson", "")  # short quote used in captions
     data["narration"] = data.get("narration", "")
+    data["topic_source"] = topic_source
 
     # Footage query goes into the script so fetch_footage.py can read it
     data["footage_query"] = data.get("footage_query", f"{topic['field']} cinematic")
@@ -188,7 +297,8 @@ def main():
     (out_dir / "script.txt").write_text(data["narration"], encoding="utf-8")
 
     write_platform_captions(data, out_dir)
-    save_used(load_used(), topic["name"])
+    if topic_source == "static":
+        save_used(load_used(), topic["name"])
 
     words = len(data["narration"].split())
     print(f"[generate_script_ai] Done. {words} narration words. "

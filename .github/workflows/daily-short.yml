@@ -46,9 +46,12 @@ jobs:
           pip install -r requirements.txt
 
       # ── Stage 1: AI generates a fresh historical success story ──────────────
+      # Tries a trending real-person angle first (web search + YouTube's trending
+      # chart), falling back to config/topics.json's static list if nothing fits.
       - name: Generate script (OpenAI GPT)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           TOPIC_ARG=""
           if [ -n "${{ inputs.topic_index }}" ]; then
@@ -148,9 +151,10 @@ jobs:
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
+          TOPIC_SOURCE=$(python -c "import json;print(json.load(open('build/script.json')).get('topic_source','unknown'))" 2>/dev/null || echo "unknown")
           IDENT=$(python -c "import json;m=json.load(open('build/footage_manifest.json'));print(','.join(c.get('source','?') for c in m))" 2>/dev/null || echo "unknown")
           FACTCHECK=$(python -c "import json;print(json.load(open('build/factcheck.json'))['verdict'])" 2>/dev/null || echo "unknown")
-          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},factcheck=${FACTCHECK},buffer=${{ steps.post_buffer.outcome }},zapier=${{ steps.post_sheet.outcome }}" >> logs/history.csv
+          echo "${DATE},\"${SCRIPT_TITLE}\",topic=${TOPIC_SOURCE},${IDENT},factcheck=${FACTCHECK},buffer=${{ steps.post_buffer.outcome }},zapier=${{ steps.post_sheet.outcome }}" >> logs/history.csv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/history.csv logs/used_topics.json 2>/dev/null || true
