@@ -4,11 +4,11 @@ Stage 1 (AI): Generate a historical success story script using OpenAI GPT.
 
 Topic selection tries, in order:
   1. Trending: a web-search-grounded GPT call (see pick_trending_topic) looks at
-     today's YouTube "most popular" chart plus live web search and picks ONE real,
-     specific, named person/organization whose current relevance (an achievement,
-     comeback, viral moment, milestone, anniversary) fits a motivational
-     success-story short. It must stay biographically factual — no invented
-     "trending reason" if none is verifiable.
+     today's NewsAPI.org top headlines and YouTube's "most popular" chart plus live
+     web search, and picks ONE real, specific, named person/organization whose
+     current relevance (an achievement, comeback, viral moment, milestone,
+     anniversary) fits a motivational success-story short. It must stay
+     biographically factual — no invented "trending reason" if none is verifiable.
   2. Static: config/topics.json's curated historical-figures list (avoiding
      recently used ones), same as before. Used whenever trending selection finds
      no good fit, errors, or --topic-index forces a specific static entry.
@@ -48,8 +48,8 @@ BUILD_DIR = Path("build")
 TRENDING_SYSTEM_PROMPT = (
     "You find real, current angles for a motivational short-form video series about "
     "historical and modern success stories. Use web search to check what's genuinely "
-    "trending or newsworthy right now. Cross-reference with the YouTube trending "
-    "titles you're given, but you are not limited to them.\n\n"
+    "trending or newsworthy right now. Cross-reference with the news headlines and/or "
+    "YouTube trending titles you're given, but you are not limited to them.\n\n"
     "Pick ONE real, specific, named person or organization whose CURRENT relevance "
     "(a recent achievement, comeback, viral moment, record, milestone, or anniversary "
     "you can verify) would make a compelling success-story video today. The "
@@ -113,13 +113,19 @@ def pick_trending_topic(client: OpenAI, model: str) -> dict | None:
     chart. Returns a topic dict (name/field/theme/era + trend_reason/hook_line)
     on a good fit, or None if nothing fits, the call fails, or the response
     can't be parsed — any of which just falls through to the static list."""
+    news_headlines = fetch_trending_topic.get_news_headlines(
+        os.environ.get("NEWS_SECRETS", "")
+    )
     youtube_titles = fetch_trending_topic.get_youtube_trending(
         os.environ.get("YOUTUBE_API_KEY", "")
     )
-    user_content = "Today's YouTube trending video titles:\n" + (
-        "\n".join(f"- {t}" for t in youtube_titles) if youtube_titles
-        else "(none available — rely on web search alone)"
-    )
+
+    parts = []
+    if news_headlines:
+        parts.append("Today's top news headlines:\n" + "\n".join(f"- {h}" for h in news_headlines))
+    if youtube_titles:
+        parts.append("Today's YouTube trending video titles:\n" + "\n".join(f"- {t}" for t in youtube_titles))
+    user_content = "\n\n".join(parts) if parts else "(no structured trending data available — rely on web search alone)"
     try:
         response = client.responses.create(
             model=model,

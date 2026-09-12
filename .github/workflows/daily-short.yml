@@ -46,11 +46,13 @@ jobs:
           pip install -r requirements.txt
 
       # ── Stage 1: AI generates a fresh historical success story ──────────────
-      # Tries a trending real-person angle first (web search + YouTube's trending
-      # chart), falling back to config/topics.json's static list if nothing fits.
+      # Tries a trending real-person angle first (web search + NewsAPI headlines +
+      # YouTube's trending chart), falling back to config/topics.json's static list
+      # if nothing fits.
       - name: Generate script (OpenAI GPT)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NEWS_SECRETS: ${{ secrets.NEWS_SECRETS }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           TOPIC_ARG=""

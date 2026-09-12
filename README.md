@@ -17,7 +17,7 @@ Each day a GitHub Actions cron job runs these stages in order:
 
 | Stage | Script | What it does |
 |-------|--------|--------------|
-| 1 | `generate_script_ai.py` | **Trending-first topic pick:** a web-search-grounded GPT call checks live news/pop-culture plus YouTube's trending chart for a real, current person/story that fits the format, with a hook line built around *why it's relevant now*. Falls back to a random pick from `config/topics.json` (avoiding recently used ones) when nothing trending fits. Either way, GPT then writes the full narration, hook, per-segment footage queries, SEO metadata, hashtags, and platform captions. |
+| 1 | `generate_script_ai.py` | **Trending-first topic pick:** a web-search-grounded GPT call checks live news/pop-culture (NewsAPI headlines + YouTube's trending chart) for a real, current person/story that fits the format, with a hook line built around *why it's relevant now*. Falls back to a random pick from `config/topics.json` (avoiding recently used ones) when nothing trending fits. Either way, GPT then writes the full narration, hook, per-segment footage queries, SEO metadata, hashtags, and platform captions. |
 | 1.5 | `factcheck_script.py` | Re-checks the narration's factual claims (dates, numbers, named events) with a web-search-grounded OpenAI call, independent of the model that wrote them. Minor errors are auto-corrected in place; if the core story can't be verified, the run **aborts** rather than build/post it. |
 | 2 | `generate_tts.py` | Generates the voiceover with **StyleTTS2**, cloning the channel owner's own voice from a private reference sample fetched at runtime via `VOICE_REPO_PAT`. Falls back to **Kokoro-82M** (offline neural TTS), then **Piper**, then `espeak-ng` if earlier engines fail. |
 | 3 | `generate_captions.py` | Builds burned-in captions via **Whisper word-level timestamps** synced to the actual voiceover audio. |
@@ -81,7 +81,8 @@ Create these under **Settings → Secrets and variables → Actions**:
 | `VOICE_REPO_PAT` | `generate_tts.py` | *Optional.* Fine-grained, read-only GitHub PAT scoped to a separate private repo holding the cloned-voice reference sample. Without it, TTS falls back to Kokoro-82M. **Never paste this token into chat or commit it anywhere** — add it directly via GitHub Settings → Secrets and variables → Actions. |
 | `OPENAI_API_KEY` | `generate_script_ai.py`, `factcheck_script.py`, `generate_captions.py` | Writes the narration, fact-checks it with web search, and (as a fallback) transcribes Whisper captions. |
 | `BUFFER_API_KEY` / `BUFFER_ORG_ID` | `post_buffer.py` | Buffer account credentials for posting to TikTok, Facebook, and Instagram. |
-| `YOUTUBE_API_KEY` | `fetch_trending_topic.py` | *Optional.* A plain Google Cloud API key (not OAuth) with the YouTube Data API v3 enabled, used only to read the public "most popular videos" chart as a trending-topic signal. Without it, trending selection relies on OpenAI web search alone. |
+| `NEWS_SECRETS` | `fetch_trending_topic.py` | *Optional.* API key from https://newsapi.org/ (free tier), used to read today's top headlines as a trending-topic signal. |
+| `YOUTUBE_API_KEY` | `fetch_trending_topic.py` | *Optional.* A plain Google Cloud API key (not OAuth) with the YouTube Data API v3 enabled, used only to read the public "most popular videos" chart as a trending-topic signal. Without either this or `NEWS_SECRETS`, trending selection relies on OpenAI web search alone. |
 
 Footage degrades gracefully: with **no** stock key set, `fetch_footage.py` falls back to
 free archive.org NASA footage automatically. Set at least one stock key for the best
