@@ -65,12 +65,23 @@ jobs:
       # generate_script_ai.py's prompt asks GPT-4o-mini for "real details (years,
       # numbers, names)" about a real historical figure — exactly what small models
       # hallucinate. This re-checks those claims with web search. Minor errors are
-      # auto-corrected in place; if the core story can't be verified, the run aborts
-      # here rather than build and post it.
+      # auto-corrected in place. If the core story can't be verified: a trending
+      # pick retries once against the static config/topics.json list (curated real
+      # figures, far less likely to fail); only if that ALSO fails does the run abort.
       - name: Fact-check narration (OpenAI web search)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: python scripts/factcheck_script.py
+        run: |
+          if ! python scripts/factcheck_script.py; then
+            TOPIC_SOURCE=$(python -c "import json;print(json.load(open('build/script.json')).get('topic_source','static'))")
+            if [ "$TOPIC_SOURCE" = "trending" ]; then
+              echo "Trending topic failed fact-check; retrying once with the static topic list..."
+              python scripts/generate_script_ai.py --no-trending
+              python scripts/factcheck_script.py
+            else
+              exit 1
+            fi
+          fi
 
       # ── Stage 2: TTS first (so captions + footage can use real audio duration) ─
       # Tries StyleTTS2 (cloned voice) first, then falls back through Kokoro,
