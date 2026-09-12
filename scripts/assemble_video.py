@@ -53,9 +53,19 @@ def ffprobe_duration(path: str) -> float:
 
 
 def drawtext_escape(text: str) -> str:
+    # Text is wrapped in single quotes (text='...') in build_filter_complex. Verified
+    # empirically against real ffmpeg (multiple escaping schemes tried: \', '\'',
+    # \\', none work) that libavfilter's drawtext/filtergraph parser has no working
+    # escape for a literal ' inside a single-quoted value here — any of them corrupts
+    # parsing from that point on, surfacing later as "Error parsing global options:
+    # Filter not found" once a second quoted option (e.g. enable='...') follows.
+    # An AI-generated hook/CTA regularly contains one (e.g. "MESSI'S LEGENDARY
+    # FAREWELL TOUR"), so swap it for the visually-equivalent Unicode right single
+    # quotation mark (U+2019), which isn't filtergraph-special and renders fine in
+    # DejaVu Sans.
     return (text.replace("\\", "\\\\")
                 .replace(":", "\\:")
-                .replace("'", "\\'")
+                .replace("'", "’")
                 .replace("%", "\\%"))
 
 
