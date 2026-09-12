@@ -145,6 +145,15 @@ def _get_styletts2_model():
         torch.load = functools.partial(torch.load, weights_only=False)
         nltk.download("punkt_tab", quiet=True)
 
+        import styletts2.tts as _styletts2_tts
+
+        # styletts2's own long-text splitter chunks at 420 raw characters, but this
+        # pipeline's GPT-written narration (ALL-CAPS emphasis, "..." pauses) phonemizes
+        # to more tokens per character than that budget assumes — a 420-char chunk can
+        # still exceed the underlying model's 512-token limit and crash. Shrink the
+        # chunk size so every chunk stays safely under that limit regardless of style.
+        _styletts2_tts.SINGLE_INFERENCE_MAX_LEN = 250
+
         from styletts2.tts import StyleTTS2
 
         print("[generate_tts] loading StyleTTS2 (cloned voice) ...")
