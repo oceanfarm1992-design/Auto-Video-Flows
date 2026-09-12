@@ -90,3 +90,4 @@ timestamp,script_title,archive_identifier,sheet_outcome
 2026-09-11T22:08:02Z,"PAINTING MASTERPIECES IN NEAR DARKNESS",pexels_video,pexels_video,pexels_photo,pexels_video,buffer=success,zapier=success
 2026-09-12T10:23:12Z,"FROM REJECTION TO LEGENDARY SUCCESS",pexels_video,pexels_video,pexels_photo,pexels_video,buffer=skipped,zapier=skipped
 2026-09-12T10:34:14Z,"FROM PERSECUTOR TO LEGENDARY LEADER",pexels_video,pexels_video,pexels_photo,pexels_video,buffer=skipped,zapier=skipped
+2026-09-12T10:40:58Z,"FROM REJECTION TO CREATIVITY",pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=minor_issues,buffer=skipped,zapier=skipped
