@@ -1,17 +1,15 @@
 # yt-shorts-generator
 
-A **zero-cost, fully automated daily pipeline** that builds one ~30-50s vertical (9:16)
-motivational short from **public-domain sources** and posts it to **Instagram Reels,
-Facebook, and YouTube Shorts**. Everything runs on the **GitHub Actions free
-tier** — no paid infrastructure, no YouTube ripping.
+A **near-zero-cost, fully automated pipeline** that builds one ~30-50s vertical (9:16)
+motivational short (AI-scripted historical success stories, narrated in the channel
+owner's own cloned voice) three times a day and posts it to **TikTok, Instagram,
+Facebook, and YouTube Shorts**. Runs on the **GitHub Actions free tier**.
 
-Posting is handed off to **Zapier via a shared Google Sheet** rather than calling each
-platform's API with tokens directly. The pipeline appends one row per video to a Google
-Sheet; a free Zapier "New Spreadsheet Row" trigger (one Zap per platform) picks it up and
-posts using Zapier's own already-verified connections. This sidesteps the token churn that
-kept breaking direct posting (Meta long-lived token re-exchange, TikTok's rotating refresh
-token, YouTube OAuth verification). **TikTok is not posted** — its app isn't audited and
-there's no free Zapier TikTok posting integration.
+**TikTok + Facebook + Instagram** posting goes through **Buffer** (`post_buffer.py`),
+which holds the already-verified platform connections and publishes immediately.
+**YouTube** posting is handed off to **Zapier via a shared Google Sheet**
+(`post_sheet.py` appends a row; a Zapier "New Spreadsheet Row" trigger posts from
+there) — this sidesteps YouTube OAuth token-refresh churn.
 
 ## How it works
 
@@ -19,14 +17,16 @@ Each day a GitHub Actions cron job runs these stages in order:
 
 | Stage | Script | What it does |
 |-------|--------|--------------|
-| 1 | `fetch_script_text.py` | Picks a public-domain excerpt (Marcus Aurelius / Emerson / Seneca) from `config/sources.json`, rotating by date. Wraps it with a short spoken intro + reflective outro so the narration runs ~40s (not an abrupt ~20s). Also writes per-platform caption files. |
-| 2 | `fetch_footage.py` | Fetches a **theme-matched, HD** B-roll clip. Tries **Pexels → Pixabay**, searching by the quote's `footage_query` so the footage is relevant. If no suitable clip is found, falls back to `generate_animation.py` — a **generated cinematic gradient** (always on-tone, never random). archive.org NASA footage is still available but off by default. |
-| 3 | `generate_tts.py` | Generates the voiceover with **StyleTTS2**, cloning the channel owner's own voice from a private reference sample fetched at runtime via `VOICE_REPO_PAT`. Falls back to **Kokoro-82M** (offline neural TTS), then **Piper**, then `espeak-ng` if earlier engines fail. |
-| 4 | `generate_captions.py` | Builds a burned-in `.srt` from the known script text + measured audio duration (no transcription needed). |
+| 1 | `generate_script_ai.py` | Picks a historical figure from `config/topics.json` (avoiding recently used ones) and calls GPT to write a unique narration, hook, per-segment footage queries, SEO metadata, hashtags, and platform captions. |
+| 1.5 | `factcheck_script.py` | Re-checks the narration's factual claims (dates, numbers, named events) with a web-search-grounded OpenAI call, independent of the model that wrote them. Minor errors are auto-corrected in place; if the core story can't be verified, the run **aborts** rather than build/post it. |
+| 2 | `generate_tts.py` | Generates the voiceover with **StyleTTS2**, cloning the channel owner's own voice from a private reference sample fetched at runtime via `VOICE_REPO_PAT`. Falls back to **Kokoro-82M** (offline neural TTS), then **Piper**, then `espeak-ng` if earlier engines fail. |
+| 3 | `generate_captions.py` | Builds burned-in captions via **Whisper word-level timestamps** synced to the actual voiceover audio. |
+| 4 | `fetch_footage_multi.py` | Fetches one theme-matched HD clip/photo per story segment. Tries **Pexels → Pixabay**, searching by each segment's `footage_query`. Falls back to `generate_animation.py` — a **generated cinematic gradient** (always on-tone, never random) — when no suitable clip is found. |
 | 5a | `generate_music.py` | Synthesizes a soft **ambient music pad** with ffmpeg (`build/music.mp3`) — no assets needed. Skipped in favour of real tracks if you drop any in `assets/music/`. |
 | 5b | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in **centre-screen** captions + a hook title card + end-card CTA; **denoise + loudness-normalize** the voice, and mix the **background music** under it. |
-| 6 | `post_sheet.py` | Appends one row (`title \| description \| hashtags \| caption \| video_url \| category`) to the shared Google Sheet. Zapier posts to Instagram / Facebook / YouTube from there. |
-| 7 | workflow step | Appends a row to `logs/history.csv` and commits it back. |
+| 6a | `post_buffer.py` | Posts to **TikTok + Facebook + Instagram** via Buffer's already-verified connections. |
+| 6b | `post_sheet.py` | Appends one row (`title \| description \| hashtags \| caption \| video_url \| category`) to the shared Google Sheet. Zapier posts to **YouTube** from there. |
+| 7 | workflow step | Appends a row to `logs/history.csv` (including the fact-check verdict) and commits it back. |
 
 The workflow is `.github/workflows/daily-short.yml`. It runs **daily at 14:00 UTC**
 (`build_and_post`) and is also runnable on demand via **workflow_dispatch**. There is no
@@ -79,6 +79,8 @@ Create these under **Settings → Secrets and variables → Actions**:
 | `PEXELS_API_KEY` | `fetch_footage.py` | *Optional.* Free key from https://www.pexels.com/api/ for HD theme-matched footage (tried first). |
 | `PIXABAY_API_KEY` | `fetch_footage.py` | *Optional.* Free key from https://pixabay.com/api/docs/ (tried second). |
 | `VOICE_REPO_PAT` | `generate_tts.py` | *Optional.* Fine-grained, read-only GitHub PAT scoped to a separate private repo holding the cloned-voice reference sample. Without it, TTS falls back to Kokoro-82M. **Never paste this token into chat or commit it anywhere** — add it directly via GitHub Settings → Secrets and variables → Actions. |
+| `OPENAI_API_KEY` | `generate_script_ai.py`, `factcheck_script.py`, `generate_captions.py` | Writes the narration, fact-checks it with web search, and (as a fallback) transcribes Whisper captions. |
+| `BUFFER_API_KEY` / `BUFFER_ORG_ID` | `post_buffer.py` | Buffer account credentials for posting to TikTok, Facebook, and Instagram. |
 
 Footage degrades gracefully: with **no** stock key set, `fetch_footage.py` falls back to
 free archive.org NASA footage automatically. Set at least one stock key for the best

@@ -56,6 +56,17 @@ jobs:
           fi
           python scripts/generate_script_ai.py $TOPIC_ARG
 
+      # ── Stage 1.5: fact-check the AI-written narration before anything else uses it ─
+      # generate_script_ai.py's prompt asks GPT-4o-mini for "real details (years,
+      # numbers, names)" about a real historical figure — exactly what small models
+      # hallucinate. This re-checks those claims with web search. Minor errors are
+      # auto-corrected in place; if the core story can't be verified, the run aborts
+      # here rather than build and post it.
+      - name: Fact-check narration (OpenAI web search)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python scripts/factcheck_script.py
+
       # ── Stage 2: TTS first (so captions + footage can use real audio duration) ─
       # Tries StyleTTS2 (cloned voice) first, then falls back through Kokoro,
       # Piper, and espeak-ng in one call before giving up.
@@ -138,7 +149,8 @@ jobs:
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           SCRIPT_TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
           IDENT=$(python -c "import json;m=json.load(open('build/footage_manifest.json'));print(','.join(c.get('source','?') for c in m))" 2>/dev/null || echo "unknown")
-          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},buffer=${{ steps.post_buffer.outcome }},zapier=${{ steps.post_sheet.outcome }}" >> logs/history.csv
+          FACTCHECK=$(python -c "import json;print(json.load(open('build/factcheck.json'))['verdict'])" 2>/dev/null || echo "unknown")
+          echo "${DATE},\"${SCRIPT_TITLE}\",${IDENT},factcheck=${FACTCHECK},buffer=${{ steps.post_buffer.outcome }},zapier=${{ steps.post_sheet.outcome }}" >> logs/history.csv
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/history.csv logs/used_topics.json 2>/dev/null || true
