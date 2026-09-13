@@ -30,6 +30,7 @@ Usage:
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 
@@ -46,6 +47,21 @@ _KOKORO_PIPELINE = None
 _KOKORO_LANG = None
 _STYLETTS2_MODEL = None
 _VOICE_REF_PATH = None
+
+# generate_script_ai.py deliberately writes ALL-CAPS emphasis words into the
+# narration (e.g. "He was BROKE and alone... then a LEGEND."). Phonemizer-based
+# TTS (gruut, used by StyleTTS2) treats a run of capital letters as an
+# initialism and spells it letter by letter ("B R O K E") instead of speaking
+# the word — confirmed directly against gruut. Title-case any such run before
+# synthesis so it's spoken normally; the on-screen hook/captions (sourced
+# separately, not from this in-memory string) keep the original ALL-CAPS text
+# for visual emphasis. Matches 2+ letter runs so single-letter words like "I"
+# or "A" are left alone.
+_ALLCAPS_RUN_RE = re.compile(r"[A-Z][A-Z'’-]*[A-Z]")
+
+
+def soften_caps_for_speech(text: str) -> str:
+    return _ALLCAPS_RUN_RE.sub(lambda m: m.group(0).capitalize(), text)
 
 VOICE_REF_CACHE = "build/.voice_reference.mp3"
 VOICE_REF_REPO = "oceanfarm1992-design/voice-reference-audio"
@@ -262,6 +278,7 @@ def main():
 
     with open(args.script, encoding="utf-8") as f:
         text = f.read().strip()
+    text = soften_caps_for_speech(text)
 
     kokoro_voice = args.voice if args.engine in ("auto", "kokoro") and args.voice else "am_fenrir"
     piper_voice = args.voice if args.voice in VOICE_PATHS else "en_US-amy-medium"
