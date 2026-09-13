@@ -100,3 +100,4 @@ timestamp,script_title,archive_identifier,sheet_outcome
 2026-09-12T16:53:14Z,"BECOMING A DAD CHANGED EVERYTHING",topic=trending,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=pass,buffer=success,zapier=success
 2026-09-12T21:54:48Z,"ROOKIE MEDIA TURNER RAVEN JOHNSON JUST WENT VIRAL",topic=trending,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=minor_issues,buffer=success,zapier=success
 2026-09-13T03:38:06Z,"LADY GAGA EMBRACES MOTHERHOOD",topic=trending,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=minor_issues,buffer=skipped,zapier=skipped
+2026-09-13T13:07:15Z,"MARIE CURIE CHANGED SCIENCE FOREVER",topic=static,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=pass,buffer=failure,zapier=success
