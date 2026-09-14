@@ -103,3 +103,4 @@ timestamp,script_title,archive_identifier,sheet_outcome
 2026-09-13T13:07:15Z,"MARIE CURIE CHANGED SCIENCE FOREVER",topic=static,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=pass,buffer=failure,zapier=success
 2026-09-13T17:24:15Z,"LARRY ELLISON CANCELS $7.5 BILLION SALE",topic=trending,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=minor_issues,buffer=success,zapier=success
 2026-09-13T22:00:51Z,"DIABLO'S BACK AND IT'S BOLDER THAN EVER!",topic=trending,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=minor_issues,buffer=success,zapier=success
+2026-09-14T14:44:37Z,"PAINTING THROUGH PAIN",topic=static,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=error,buffer=success,zapier=success
