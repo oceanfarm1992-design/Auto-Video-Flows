@@ -111,3 +111,4 @@ timestamp,script_title,archive_identifier,sheet_outcome
 2026-09-15T22:38:45Z,"SHE RAN 636 MILES IN SIX DAYS!",topic=trending,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=pass,buffer=success,zapier=success
 2026-09-16T13:05:56Z,"HONESTY CREATES ICONS",topic=static,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=minor_issues,buffer=success,zapier=success
 2026-09-16T18:06:01Z,"MATTHEW RHYS BREAKS EMMY RECORDS!",topic=trending,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=minor_issues,buffer=success,zapier=failure
+2026-09-16T22:34:57Z,"JENSEN HUANG DEFIES THE AI DOOM PROPHETS",topic=trending,pexels_video,pexels_video,pexels_photo,pexels_video,factcheck=error,buffer=success,zapier=success
