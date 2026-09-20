@@ -129,6 +129,9 @@ jobs:
           echo "Public video URL: $URL"
 
       # ── TikTok + Facebook + Instagram: Buffer (all 3 daily runs) ─────────────
+      # TikTok gets its own caption_tiktok.txt (SEO-keyword-aware, see
+      # generate_script_ai.py's tiktok_seo_keywords) instead of reusing
+      # Instagram's caption; Facebook/Instagram still share caption_meta.txt.
       - name: Post to TikTok + Facebook + Instagram via Buffer
         id: post_buffer
         if: ${{ inputs.skip_post != true }}
@@ -141,6 +144,7 @@ jobs:
             --video-url "${{ steps.publish_asset.outputs.video_url }}" \
             --script build/script.json \
             --caption-file build/caption_meta.txt \
+            --caption-file-tiktok build/caption_tiktok.txt \
             --services tiktok,facebook,instagram
 
       # ── YouTube: Zapier (all 3 daily runs — free tier) ───────────────────────

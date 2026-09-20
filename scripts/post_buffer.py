@@ -174,6 +174,14 @@ def post_video(token: str, channel_id: str, service: str,
 
 # ── Caption ───────────────────────────────────────────────────────────────────
 
+def read_text_or_none(path: str) -> str | None:
+    if path and os.path.exists(path):
+        text = open(path, encoding="utf-8").read().strip()
+        if text:
+            return text
+    return None
+
+
 def build_caption(script_path: str, caption_file: str) -> str:
     if os.path.exists(caption_file):
         text = open(caption_file, encoding="utf-8").read().strip()
@@ -196,6 +204,9 @@ def main():
     ap.add_argument("--video-url",    required=True)
     ap.add_argument("--script",       default="build/script.json")
     ap.add_argument("--caption-file", default="build/caption_meta.txt")
+    ap.add_argument("--caption-file-tiktok", default="build/caption_tiktok.txt",
+                    help="TikTok-specific caption (SEO keywords, own hashtag mix). "
+                         "Falls back to --caption-file if missing/empty.")
     ap.add_argument("--services",     default="tiktok,facebook,instagram",
                     help="Comma-separated Buffer service names to post to.")
     args = ap.parse_args()
@@ -206,6 +217,7 @@ def main():
 
     services = [s.strip().lower() for s in args.services.split(",") if s.strip()]
     caption  = build_caption(args.script, args.caption_file)
+    tiktok_caption = read_text_or_none(args.caption_file_tiktok) or caption
 
     print(f"[post_buffer] targeting services: {services}")
     channels = get_channels(token, services)
@@ -215,9 +227,10 @@ def main():
         cid  = ch["id"]
         svc  = ch.get("service", "?")
         name = ch.get("name", "?")
+        svc_caption = tiktok_caption if svc.lower() == "tiktok" else caption
         print(f"[post_buffer] posting to {svc}:{name} ({cid})...")
         try:
-            post = post_video(token, cid, svc, args.video_url, caption)
+            post = post_video(token, cid, svc, args.video_url, svc_caption)
             print(f"[post_buffer] OK {svc}:{name} — post id={post.get('id')}")
         except SystemExit as e:
             print(str(e), file=sys.stderr)

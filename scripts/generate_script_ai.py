@@ -155,7 +155,7 @@ def pick_trending_topic(client: OpenAI, model: str) -> dict | None:
     }
 
 
-def build_prompt(topic: dict, story_format: str) -> str:
+def build_prompt(topic: dict, story_format: str, tiktok_keywords: list[str] | None = None) -> str:
     name = topic["name"]
     field = topic["field"]
     theme = topic["theme"]
@@ -169,7 +169,14 @@ def build_prompt(topic: dict, story_format: str) -> str:
         f"don't invent details just because the topic is trending."
         if trend_reason else ""
     )
-    return f"""Write a motivational short-form video script about {name} ({era}), theme: "{theme}", field: {field}, format: {story_format.replace("_", " ")}.{trend_note}
+    tiktok_seo_note = (
+        "\n\nFor caption_tiktok/hashtags_tiktok specifically: naturally weave in "
+        "2-3 of these currently high-search-volume TikTok terms wherever they genuinely "
+        f"fit this story (skip any that don't fit rather than forcing them): "
+        f"{', '.join(tiktok_keywords)}."
+        if tiktok_keywords else ""
+    )
+    return f"""Write a motivational short-form video script about {name} ({era}), theme: "{theme}", field: {field}, format: {story_format.replace("_", " ")}.{trend_note}{tiktok_seo_note}
 
 Return ONLY valid JSON with these exact keys (no markdown, no code fences):
 
@@ -205,9 +212,11 @@ Return ONLY valid JSON with these exact keys (no markdown, no code fences):
   "hashtags_instagram": "8-10 hashtags including person name and field",
   "hashtags_youtube": "#Shorts #motivation 5-6 hashtags",
   "hashtags_facebook": "5-6 hashtags",
+  "hashtags_tiktok": "6-8 hashtags: mix broad (#fyp #motivation) with niche/SEO-keyword-derived tags specific to this story",
   "caption_instagram": "Instagram caption: hook in first 125 chars, full 150-200 chars with hashtags",
   "caption_facebook": "Facebook caption 100-140 chars, conversational",
   "caption_youtube": "YouTube caption 100-120 chars keyword-rich",
+  "caption_tiktok": "TikTok caption: punchy hook in first 60 chars (TikTok truncates early), full caption under 150 chars including hashtags_tiktok appended at the end",
   "author": "{name}",
   "field": "{field}",
   "era": "{era}"
@@ -244,6 +253,7 @@ def write_platform_captions(data: dict, out_dir: Path):
         "caption_meta.txt": data.get("caption_instagram", ""),
         "caption_facebook.txt": data.get("caption_facebook", ""),
         "caption_youtube.txt": data.get("caption_youtube", ""),
+        "caption_tiktok.txt": data.get("caption_tiktok", ""),
         "yt_title.txt": data.get("seo_title", data["title"]),
         "yt_description.txt": data.get("seo_description", ""),
     }
@@ -271,6 +281,11 @@ def main():
 
     topics = config["historical_figures"]
     formats = config["story_formats"]
+    all_tiktok_keywords = config.get("tiktok_seo_keywords", {}).get("keywords", [])
+    tiktok_keywords = (
+        random.sample(all_tiktok_keywords, min(6, len(all_tiktok_keywords)))
+        if all_tiktok_keywords else []
+    )
 
     client = OpenAI(api_key=api_key)
 
@@ -289,8 +304,10 @@ def main():
 
     print(f"[generate_script_ai] Topic: {topic['name']} | Source: {topic_source} | "
           f"Format: {story_format} | Model: {args.model}")
+    if tiktok_keywords:
+        print(f"[generate_script_ai] TikTok SEO keywords offered: {', '.join(tiktok_keywords)}")
 
-    prompt = build_prompt(topic, story_format)
+    prompt = build_prompt(topic, story_format, tiktok_keywords)
     data = call_openai(client, prompt, args.model)
 
     # Normalise: ensure required keys exist
@@ -299,6 +316,10 @@ def main():
     data["text"] = data.get("lesson", "")  # short quote used in captions
     data["narration"] = data.get("narration", "")
     data["topic_source"] = topic_source
+    # Fall back to the Instagram caption if GPT omits caption_tiktok, so
+    # post_buffer.py never posts to TikTok with an empty caption.
+    data.setdefault("caption_tiktok", data.get("caption_instagram", ""))
+    data.setdefault("hashtags_tiktok", data.get("hashtags_instagram", "#fyp #motivation"))
 
     # Footage query goes into the script so fetch_footage.py can read it
     data["footage_query"] = data.get("footage_query", f"{topic['field']} cinematic")

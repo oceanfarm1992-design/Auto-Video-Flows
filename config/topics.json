@@ -175,5 +175,17 @@
     "question_then_answer",
     "contrast_then_lesson",
     "storytelling_moral"
-  ]
+  ],
+
+  "tiktok_seo_keywords": {
+    "_comment": "Curated for TikTok discoverability -- not pulled from a live API (TikTok's Creator Search Insights has no public API and lives inside TikTok Studio behind login). Refresh this list periodically: open TikTok Studio -> Analytics -> Creator Search Insights yourself and swap in whatever's currently trending/underserved for this niche. generate_script_ai.py picks 2-3 relevant ones per video to weave into caption_tiktok/hashtags_tiktok.",
+    "keywords": [
+      "motivation", "self improvement", "mindset shift", "success story",
+      "life lessons", "discipline", "hustle mentality", "inspirational story",
+      "how to stay motivated", "overcome failure", "famous failures",
+      "rags to riches", "never give up", "growth mindset", "daily motivation",
+      "success mindset", "hard work pays off", "believe in yourself",
+      "comeback story", "turn your life around"
+    ]
+  }
 }

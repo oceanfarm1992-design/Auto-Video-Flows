@@ -24,7 +24,7 @@ Each day a GitHub Actions cron job runs these stages in order:
 | 4 | `fetch_footage_multi.py` | Fetches one theme-matched HD clip/photo per story segment. Tries **Pexels → Pixabay**, searching by each segment's `footage_query`. Falls back to `generate_animation.py` — a **generated cinematic gradient** (always on-tone, never random) — when no suitable clip is found. |
 | 5a | `generate_music.py` | Synthesizes a soft **ambient music pad** with ffmpeg (`build/music.mp3`) — no assets needed. Skipped in favour of real tracks if you drop any in `assets/music/`. |
 | 5b | `assemble_video.py` | ffmpeg: crop/pad footage to 1080x1920, burn in **centre-screen** captions + a hook title card + end-card CTA; **denoise + loudness-normalize** the voice, and mix the **background music** under it. |
-| 6a | `post_buffer.py` | Posts to **TikTok + Facebook + Instagram** via Buffer's already-verified connections. |
+| 6a | `post_buffer.py` | Posts to **TikTok + Facebook + Instagram** via Buffer's already-verified connections. TikTok gets its own SEO-aware caption (`caption_tiktok.txt`) instead of reusing Instagram's — see [TikTok SEO keywords](#tiktok-seo-keywords) below. |
 | 6b | `post_sheet.py` | Appends one row (`title \| description \| hashtags \| caption \| video_url \| category`) to the shared Google Sheet. Zapier posts to **YouTube** from there. |
 | 7 | workflow step | Appends a row to `logs/history.csv` (including the fact-check verdict) and commits it back. |
 
@@ -99,11 +99,23 @@ works.
   from the `video_url` column, so the workflow still uploads `final.mp4` as a GitHub
   **Release asset** and writes that public URL into the sheet row. **This only works if
   the repo is PUBLIC**; for a private repo, host the mp4 elsewhere and set the URL there.
-- **No tokens in the repo.** All platform authentication now lives inside the Zaps
-  (Zapier's own connections), which is why the token-refresh job and all `META_*` /
-  `TIKTOK_*` / `YOUTUBE_*` secrets are gone.
-- **TikTok** is not posted — its app isn't audited and Zapier has no free TikTok
-  content-posting integration. `scripts/post_tiktok.py` is retained for when that changes.
+- **No platform tokens in the repo.** Buffer and Zapier hold the actual TikTok/Facebook/
+  Instagram/YouTube connections; this repo only holds a Buffer API key and a Sheet webhook
+  URL. `scripts/post_tiktok.py`, `post_meta.py`, `post_youtube.py`, and
+  `refresh_meta_token.py` are earlier direct-API attempts, kept for reference but no longer
+  wired into the workflow.
+
+## TikTok SEO keywords
+
+`config/topics.json`'s `tiktok_seo_keywords.keywords` list feeds `caption_tiktok`/
+`hashtags_tiktok` generation — each run, GPT is offered a random sample of 6 and asked to
+weave in 2-3 that genuinely fit the story.
+
+TikTok's real **Creator Search Insights** (live trending/underserved search terms for your
+niche) has no public API and lives inside TikTok Studio behind your own login, so this list
+isn't pulled automatically. **Refresh it periodically yourself**: open TikTok Studio →
+Analytics → Creator Search Insights, and swap the keyword list in `config/topics.json` for
+whatever's currently relevant.
 
 ## Running / debugging locally
 
