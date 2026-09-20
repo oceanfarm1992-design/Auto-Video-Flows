@@ -320,6 +320,7 @@ def main():
     # post_buffer.py never posts to TikTok with an empty caption.
     data.setdefault("caption_tiktok", data.get("caption_instagram", ""))
     data.setdefault("hashtags_tiktok", data.get("hashtags_instagram", "#fyp #motivation"))
+    print(f"[generate_script_ai] caption_tiktok: {data['caption_tiktok']!r}")
 
     # Footage query goes into the script so fetch_footage.py can read it
     data["footage_query"] = data.get("footage_query", f"{topic['field']} cinematic")
