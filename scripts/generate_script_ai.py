@@ -179,22 +179,22 @@ Return ONLY valid JSON with these exact keys (no markdown, no code fences):
   "segments": [
     {{
       "text": "Exact opening words from narration for segment 1 (~50 words). The SHOCK hook.",
-      "footage_query": "dark gritty struggle failure person cinematic — MUST look different from other segments",
+      "footage_query": "YOUR OWN 3-6 word stock-footage search for what THIS segment is actually describing, grounded in {field} — not a mood phrase",
       "media_type": "video"
     }},
     {{
       "text": "Exact words for segment 2 from narration (~70 words). The raw human story.",
-      "footage_query": "historical archive documentary specific scene — DIFFERENT visual from segment 1",
+      "footage_query": "YOUR OWN 3-6 word stock-footage search for what THIS segment is actually describing, grounded in {field}, visually distinct from segment 1",
       "media_type": "video"
     }},
     {{
       "text": "Exact words for segment 3 from narration (~70 words). The pivotal turning point.",
-      "footage_query": "dramatic light breakthrough moment — person achievement triumph — DIFFERENT from above",
+      "footage_query": "YOUR OWN 3-6 word stock-footage search for what THIS segment is actually describing, grounded in {field}, visually distinct from segments 1-2",
       "media_type": "photo"
     }},
     {{
       "text": "Exact words for segment 4 from narration (~60 words). The mind-shifting lesson.",
-      "footage_query": "abstract nature sky mountains sunrise — COMPLETELY different visual from all above segments",
+      "footage_query": "YOUR OWN 3-6 word stock-footage search for what THIS segment is actually describing, grounded in {field}, visually distinct from segments 1-3",
       "media_type": "video"
     }}
   ],
@@ -214,7 +214,10 @@ Return ONLY valid JSON with these exact keys (no markdown, no code fences):
 }}
 
 IMPORTANT: The segment texts must together form the complete narration in order with no gaps.
-Each footage_query must be specific to that segment's visual moment, not generic."""
+Every footage_query is placeholder instruction text above, not example output — write your
+own real search phrase for each one. Never copy the placeholder wording itself into your
+answer, and never reuse the exact same footage_query across different videos: each must
+describe THIS segment's actual visual content for THIS specific story about {name}."""
 
 def call_openai(client: OpenAI, prompt: str, model: str) -> dict:
     response = client.chat.completions.create(
