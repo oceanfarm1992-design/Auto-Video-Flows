@@ -17,6 +17,17 @@ also anchors every query to the story's field: it swaps out an exact match
 of one of the old template phrases for the field, and appends the field to
 any query that doesn't already mention it, so results stay on-topic even if
 GPT's phrasing is vague in the future.
+
+A related follow-up bug found from a live production run (Kelsey Mitchell,
+a WNBA scoring-record story): GPT started writing genuinely specific
+queries once the copy-paste bug was fixed, but included the real person's
+name (e.g. "Kelsey Mitchell celebrating after scoring"). Pexels/Pixabay are
+royalty-free stock libraries with no footage of named individuals, so the
+name can never match anything -- it just wastes query budget. The same run
+also showed a query truncated mid-word ("...Professional Baske") because
+the 60-char cutoff didn't respect word boundaries. _clean_query() now strips
+the person's name (full name and first name alone) before field-anchoring,
+and truncates on a word boundary.
 """
 import sys
 from pathlib import Path
@@ -83,6 +94,59 @@ def test_no_field_leaves_specific_query_untouched() -> None:
     )
 
 
+def test_strips_real_persons_full_name() -> None:
+    check(
+        _clean_query("Kelsey Mitchell celebrating after scoring", "Professional Basketball",
+                     "Kelsey Mitchell"),
+        "celebrating after scoring Professional Basketball",
+        "full name stripped before field is appended (unmatchable on stock sites)",
+    )
+
+
+def test_strips_real_persons_first_name_alone() -> None:
+    check(
+        _clean_query("Kelsey training hard at the gym", "sports", "Kelsey Mitchell"),
+        "training hard at the gym sports",
+        "first name alone is also stripped, not just the full name",
+    )
+
+
+def test_query_that_is_only_the_name_falls_back_to_field() -> None:
+    check(
+        _clean_query("Kelsey Mitchell", "sports", "Kelsey Mitchell"),
+        "sports",
+        "stripping the name to nothing falls back to the field, not an empty query",
+    )
+
+
+def test_truncation_respects_word_boundaries() -> None:
+    # Matches the actual field/query scale seen in the production run that
+    # surfaced this bug (Kelsey Mitchell / "Professional Basketball League").
+    result = _clean_query(
+        "Kelsey Mitchell celebrating after scoring", "Professional Basketball League",
+        "Kelsey Mitchell",
+    )
+    assert len(result) <= 60, f"expected <=60 chars, got {len(result)}: {result!r}"
+    check(result, "celebrating after scoring Professional Basketball League",
+          "name stripped, full field preserved, no mid-word cut")
+
+
+def test_truncation_preserves_field_over_dropping_it() -> None:
+    # Regression guard: an earlier version of the fix truncated the combined
+    # string from the end, which could delete the appended field entirely
+    # (the exact anchor the safety net exists to preserve) rather than just
+    # trimming a few characters off it.
+    result = _clean_query(
+        "Kelsey Mitchell celebrating after scoring impressively hard tonight",
+        "Professional Womens Basketball League Championship",
+        "Kelsey Mitchell",
+    )
+    assert len(result) <= 60, f"expected <=60 chars, got {len(result)}: {result!r}"
+    assert "Professional" in result and "Championship" in result, (
+        f"field must never be dropped entirely: {result!r}"
+    )
+
+
 def main() -> None:
     tests = [
         test_replaces_exact_generic_template_phrase,
@@ -91,6 +155,11 @@ def main() -> None:
         test_does_not_duplicate_field_already_present,
         test_still_strips_prompt_instruction_hints,
         test_no_field_leaves_specific_query_untouched,
+        test_strips_real_persons_full_name,
+        test_strips_real_persons_first_name_alone,
+        test_query_that_is_only_the_name_falls_back_to_field,
+        test_truncation_respects_word_boundaries,
+        test_truncation_preserves_field_over_dropping_it,
     ]
     failures = 0
     for test in tests:

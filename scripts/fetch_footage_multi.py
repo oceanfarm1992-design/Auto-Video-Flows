@@ -20,6 +20,7 @@ import argparse
 import json
 import os
 import random
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -183,29 +184,49 @@ _GENERIC_TEMPLATE_QUERIES = {
 }
 
 
-def _clean_query(raw: str, field: str = "") -> str:
-    """Strip GPT instruction hints from footage_query and anchor it to the
-    story's field so results stay on-topic even when GPT's phrasing is
-    vague."""
+def _clean_query(raw: str, field: str = "", name: str = "") -> str:
+    """Strip GPT instruction hints from footage_query, drop the real person's
+    name (Pexels/Pixabay are royalty-free stock libraries with no footage of
+    named individuals, so it can never match and only wastes query budget),
+    and anchor the result to the story's field so it stays on-topic even
+    when GPT's phrasing is vague."""
     # Remove everything after ' — ' or ' - ' (instruction notes from the prompt)
     for sep in [" — ", " -- ", " - MUST", " - DIFFERENT", " - COMPLETELY"]:
         if sep in raw:
             raw = raw[:raw.index(sep)]
     raw = raw.strip()
 
-    if raw.lower() in _GENERIC_TEMPLATE_QUERIES:
-        raw = field or "cinematic"
-    elif field and field.lower() not in raw.lower():
-        raw = f"{raw} {field}"
+    if name:
+        for token in (name, name.split()[0] if " " in name else None):
+            if token:
+                raw = re.sub(re.escape(token), "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s+", " ", raw).strip(" '’")
 
-    # Keep only the first 60 chars (API search queries should be short)
-    return raw.strip()[:60]
+    if not raw or raw.lower() in _GENERIC_TEMPLATE_QUERIES:
+        return (field or "cinematic")[:60]
+
+    if field and field.lower() not in raw.lower():
+        # Reserve room for the field -- it's the topic anchor -- and trim the
+        # descriptive part first if the two together would run long. Cutting
+        # the combined string from the end instead can drop the field
+        # entirely (e.g. "...tonight Profes" -> rsplit(' ') removes "Profes"
+        # AND leaves the field-less "...tonight", losing the anchor).
+        budget = 60 - len(field) - 1
+        if budget > 0 and len(raw) > budget:
+            raw = raw[:budget].rsplit(" ", 1)[0]
+        raw = f"{raw} {field}".strip()
+
+    # Cut on a word boundary -- a hard slice can chop the last word in half
+    # (e.g. "...Professional Baske"), sending a garbled, unmatchable term.
+    if len(raw) > 60:
+        raw = raw[:60].rsplit(" ", 1)[0]
+    return raw.strip()
 
 
 def fetch_segment(idx: int, segment: dict, duration: float,
                   out_dir: str, cfg: dict, force_source: str | None,
-                  field: str = "") -> dict:
-    query = _clean_query(segment.get("footage_query", "cinematic nature"), field)
+                  field: str = "", name: str = "") -> dict:
+    query = _clean_query(segment.get("footage_query", "cinematic nature"), field, name)
     want_photo = segment.get("media_type") == "photo" and not force_source
 
     # destination file paths
@@ -311,11 +332,12 @@ def main():
 
     durations = estimate_durations(segments, total_words, wps, audio_duration)
     field = script.get("field", "")
+    name = script.get("author", "")
 
     os.makedirs(args.out, exist_ok=True)
     manifest = []
     for i, (seg, dur) in enumerate(zip(segments, durations)):
-        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field)
+        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name)
         print(f"[fetch_footage_multi] segment {i+1}/{len(segments)}: "
               f"'{seg.get('footage_query', '')}' -> query='{info['query']}' ~{dur:.1f}s")
         manifest.append(info)
