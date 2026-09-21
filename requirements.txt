@@ -1,6 +1,6 @@
 # Core pipeline dependencies (all pure-python or wheels that install cleanly on GitHub Actions Ubuntu)
 requests>=2.34.2
-openai>=3.8.0
+openai>=3.15.0
 
 # TTS: StyleTTS2 (MIT license) clones the channel owner's own voice from a private
 # reference sample fetched at runtime (see VOICE_REPO_PAT in scripts/generate_tts.py
@@ -14,7 +14,7 @@ styletts2>=0.1.6
 # fails to load (e.g. the voice-reference fetch errors). Fully offline once its
 # checkpoint is cached, no per-run API cost.
 kokoro>=0.9.4
-soundfile>=0.12.1
+soundfile>=0.14.0
 
 # TTS: piper-tts ships prebuilt wheels for linux and runs fully offline (no API key).
 # VERIFY: exact package name / version. On PyPI the package is "piper-tts" and the CLI entrypoint is "piper".
@@ -26,6 +26,6 @@ piper-tts>=1.8.0
 PyNaCl>=1.6.2
 
 # YouTube upload via google's official client libraries.
-google-auth>=2.57.1
+google-auth>=2.58.0
 google-auth-oauthlib>=1.4.1
 google-api-python-client>=2.200.0
