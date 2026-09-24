@@ -31,7 +31,7 @@ except ImportError:
 from generate_script_ai import write_platform_captions
 
 RECENT_WINDOW = 15
-MIN_WORDS, MAX_WORDS = 60, 150
+MIN_WORDS, MAX_WORDS = 50, 150
 
 SYSTEM_PROMPT = (
     "You write short-form video scripts for a psychology and self-awareness channel. "
@@ -81,7 +81,7 @@ Return ONLY valid JSON with these exact keys (no markdown, no code fences):
 
 {{
   "title": "Hook title, max 8 words, ALL CAPS, curiosity-driven",
-  "narration": "Spoken script of 95-115 words. First sentence is a scroll-stopping hook. Explain the psychology behind the topic in plain words, with one concrete everyday example. End with one memorable line. No ALL CAPS words.",
+  "narration": "Spoken script of 100-120 words (never fewer than 90; count them). First sentence is a scroll-stopping hook. Explain the psychology behind the topic in plain words, with one concrete everyday example. End with one memorable line. No ALL CAPS words.",
   "segments": [
     {{"text": "Exact opening words of the narration (~25 words).", "footage_query": "YOUR OWN 3-6 word stock-footage search for a filmable scene matching THIS segment", "media_type": "video"}},
     {{"text": "Exact next words of the narration (~30 words).", "footage_query": "YOUR OWN 3-6 word search, visually different from segment 1", "media_type": "video"}},
@@ -123,13 +123,13 @@ def call_openai(client: OpenAI, prompt: str, model: str) -> dict:
 def generate(client: OpenAI, cfg: dict, topic: str, model: str, keywords: list[str]) -> dict:
     """One retry if GPT returns a narration outside the usable length range."""
     prompt = build_prompt(cfg, topic, keywords)
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3):
         data = call_openai(client, prompt, model)
         words = len(str(data.get("narration", "")).split())
         if MIN_WORDS <= words <= MAX_WORDS:
             return data
         print(f"[generate_script_niche] attempt {attempt}: narration has {words} words "
-              f"(want {MIN_WORDS}-{MAX_WORDS}); {'retrying' if attempt == 1 else 'giving up'}")
+              f"(want {MIN_WORDS}-{MAX_WORDS}); {'retrying' if attempt < 3 else 'giving up'}")
     sys.exit("Narration length out of range after retry.")
 
 
