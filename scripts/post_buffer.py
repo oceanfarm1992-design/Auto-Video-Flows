@@ -35,6 +35,7 @@ CAPTION_LIMITS = {
     "tiktok":    2200,
     "facebook":  63206,
     "instagram": 2200,
+    "youtube":   5000,
     "default":   2200,
 }
 
@@ -131,7 +132,7 @@ def get_channels(token: str, services: list) -> list:
 
 # ── Per-platform post metadata ──────────────────────────────────────────────────
 
-def build_metadata(service: str, caption: str) -> dict | None:
+def build_metadata(service: str, caption: str, title: str = "") -> dict | None:
     """Buffer requires a post type for Instagram and Facebook. Vertical shorts
     map to 'reel'. TikTok takes an optional title."""
     svc = service.lower()
@@ -142,11 +143,20 @@ def build_metadata(service: str, caption: str) -> dict | None:
     if svc == "tiktok":
         title = caption.split("\n", 1)[0][:150] or "Daily motivation"
         return {"tiktok": {"title": title}}
+    if svc == "youtube":
+        yt_title = (title or caption.split(chr(10), 1)[0] or "Short").strip()[:100]
+        return {"youtube": {
+            "title": yt_title,
+            "categoryId": "27",
+            "privacy": "public",
+            "isAiGenerated": True,
+            "madeForKids": False,
+        }}
     return None
 
 
 def post_video(token: str, channel_id: str, service: str,
-               video_url: str, caption: str) -> dict:
+               video_url: str, caption: str, title: str = "") -> dict:
     caption = caption[:CAPTION_LIMITS.get(service.lower(), CAPTION_LIMITS["default"])]
 
     post_input = {
@@ -157,7 +167,7 @@ def post_video(token: str, channel_id: str, service: str,
         "schedulingType": "automatic",  # Buffer auto-publishes (vs. notification)
         "needsApproval": False,
     }
-    meta = build_metadata(service, caption)
+    meta = build_metadata(service, caption, title)
     if meta:
         post_input["metadata"] = meta
 
@@ -180,6 +190,16 @@ def read_text_or_none(path: str) -> str | None:
         if text:
             return text
     return None
+
+
+def pick_caption(service: str, default: str, tiktok: str | None, youtube: str | None) -> str:
+    """Per-service caption; falls back to the default caption."""
+    svc = service.lower()
+    if svc == "tiktok" and tiktok:
+        return tiktok
+    if svc == "youtube" and youtube:
+        return youtube if "#shorts" in youtube.lower() else youtube + chr(10) * 2 + "#Shorts"
+    return default
 
 
 def build_caption(script_path: str, caption_file: str) -> str:
@@ -207,6 +227,10 @@ def main():
     ap.add_argument("--caption-file-tiktok", default="build/caption_tiktok.txt",
                     help="TikTok-specific caption (SEO keywords, own hashtag mix). "
                          "Falls back to --caption-file if missing/empty.")
+    ap.add_argument("--caption-file-youtube", default="build/yt_description.txt",
+                    help="YouTube description; falls back to --caption-file if missing.")
+    ap.add_argument("--title-file", default="build/yt_title.txt",
+                    help="YouTube title; falls back to the caption's first line.")
     ap.add_argument("--services",     default="tiktok,facebook,instagram",
                     help="Comma-separated Buffer service names to post to.")
     args = ap.parse_args()
@@ -217,7 +241,9 @@ def main():
 
     services = [s.strip().lower() for s in args.services.split(",") if s.strip()]
     caption  = build_caption(args.script, args.caption_file)
-    tiktok_caption = read_text_or_none(args.caption_file_tiktok) or caption
+    tiktok_caption = read_text_or_none(args.caption_file_tiktok)
+    youtube_caption = read_text_or_none(args.caption_file_youtube)
+    yt_title = read_text_or_none(args.title_file) or ""
 
     print(f"[post_buffer] targeting services: {services}")
     channels = get_channels(token, services)
@@ -227,10 +253,10 @@ def main():
         cid  = ch["id"]
         svc  = ch.get("service", "?")
         name = ch.get("name", "?")
-        svc_caption = tiktok_caption if svc.lower() == "tiktok" else caption
+        svc_caption = pick_caption(svc, caption, tiktok_caption, youtube_caption)
         print(f"[post_buffer] posting to {svc}:{name} ({cid})...")
         try:
-            post = post_video(token, cid, svc, args.video_url, svc_caption)
+            post = post_video(token, cid, svc, args.video_url, svc_caption, yt_title)
             print(f"[post_buffer] OK {svc}:{name} — post id={post.get('id')}")
         except SystemExit as e:
             print(str(e), file=sys.stderr)

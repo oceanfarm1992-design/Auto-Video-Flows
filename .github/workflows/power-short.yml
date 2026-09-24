@@ -1,0 +1,27 @@
+name: power-short
+
+on:
+  schedule:
+    - cron: "30 12 * * *"
+    - cron: "30 18 * * *"
+  workflow_dispatch:
+    inputs:
+      skip_post:
+        description: "Build only, do not post"
+        type: boolean
+        default: true
+      topic_index:
+        description: "Force a topic index (blank = random)"
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  run:
+    uses: ./.github/workflows/niche-short.yml
+    with:
+      niche: power_psychology
+      skip_post: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_post }}
+      topic_index: ${{ inputs.topic_index || '' }}
+    secrets: inherit

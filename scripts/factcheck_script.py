@@ -61,7 +61,31 @@ SYSTEM_PROMPT = (
 )
 
 
+NICHE_SYSTEM_PROMPT = (
+    "You are a rigorous fact-checker for a short psychology / human-behavior video. "
+    "You are given the video's topic and its narration. Use web search to verify every "
+    "concrete factual claim: named studies, experiments, researchers, statistics, dates and "
+    "quotes must be real and accurately described, and any claim presented as an established "
+    "psychological finding must be supported by mainstream psychology (flag popular myths and "
+    "contested or debunked findings). Ignore opinions, rhetorical framing and the closing "
+    "line. Generalizations phrased as tendencies ('many', 'often') are fine.\n\n"
+    "Respond with ONLY valid JSON (no markdown fences), exactly these keys:\n"
+    '{"verdict": "pass" | "minor_issues" | "major_issues", '
+    '"issues": [{"claim": "...", "problem": "...", "correction": "..."}], '
+    '"corrected_narration": "..."}\n\n'
+    '"corrected_narration" must be the FULL narration (same style, tone and length; only the '
+    'specific wrong or overstated details fixed or softened) whenever verdict is '
+    '"minor_issues"; otherwise an empty string. Use "major_issues" only when the central '
+    "claim of the video is false, a debunked myth, or unverifiable."
+)
+
+
 def build_prompt(data: dict) -> str:
+    if data.get("niche"):
+        return (
+            f"Topic: {data.get('topic', 'unknown')}\n\n"
+            f"Narration to fact-check:\n{data.get('narration', '')}"
+        )
     return (
         f"Historical figure: {data.get('author', data.get('id', 'unknown'))}\n"
         f"Era: {data.get('era', 'unknown')}\n"
@@ -84,7 +108,7 @@ def run_factcheck(client: OpenAI, data: dict, model: str) -> dict:
         model=model,
         tools=[{"type": "web_search"}],
         input=[
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": NICHE_SYSTEM_PROMPT if data.get("niche") else SYSTEM_PROMPT},
             {"role": "user", "content": build_prompt(data)},
         ],
     )
@@ -108,7 +132,7 @@ def main():
     client = OpenAI(api_key=api_key)
 
     BUILD_DIR.mkdir(exist_ok=True)
-    who = data.get("author", data.get("id", "unknown"))
+    who = data.get("author") or data.get("topic") or data.get("id", "unknown")
     print(f"[factcheck_script] Checking narration about '{who}' with {args.model} (web search) ...")
 
     try:

@@ -1,0 +1,56 @@
+{
+  "_comment": "Series config for the 'Why men...' flow. Read by scripts/generate_script_niche.py; the 'video' block is also passed to assemble_video.py --config. Add/remove topics freely.",
+
+  "id": "men_psychology",
+  "channel_description": "short psychology videos explaining why men think, feel and behave the way they do, told with empathy and respect for everyone",
+  "tone": "calm, direct, second-person, quietly powerful; speaks to men who feel understood and to people who love them",
+  "field": "men",
+  "footage_hint": "filmable stock scenes: a man alone by a window at dusk, a man working late, silhouette on a rooftop, hands on a steering wheel, a father with a child, a man walking city streets at night, gym or workshop, a man looking at the horizon",
+  "history_log": "logs/history_men_psychology.csv",
+  "used_log": "logs/used_men_psychology.json",
+
+  "video": {
+    "cta_text": "Follow for more",
+    "min_seconds": 30,
+    "max_seconds": 75
+  },
+
+  "tiktok_seo_keywords": [
+    "men psychology", "why men", "mens mental health", "understanding men",
+    "masculinity", "male mindset", "relationship advice", "emotional strength",
+    "self improvement", "life lessons", "silent strength", "provider mindset"
+  ],
+
+  "topics": [
+    "Why men give more than they take",
+    "Why men rarely buy things for themselves",
+    "Why men go silent when they are hurting",
+    "Why men rarely ask for help",
+    "Why men hide their stress",
+    "Why men show love through actions, not words",
+    "Why men feel they must provide",
+    "Why men struggle to say 'I'm not okay'",
+    "Why men pull away when they are overwhelmed",
+    "Why men prefer solutions over sympathy",
+    "Why men fear being a burden",
+    "Why men carry responsibility silently",
+    "Why men remember who showed up when they had nothing",
+    "Why men change after being disrespected",
+    "Why a man's silence is louder than his anger",
+    "Why men rarely complain",
+    "Why men need solitude to recharge",
+    "Why men measure themselves by what they provide",
+    "Why men sacrifice their own comfort for their family",
+    "Why men feel lonely even with people around",
+    "Why men grow up faster than they should",
+    "Why men rarely talk about their struggles",
+    "Why the strongest men have been through the most",
+    "Why men value respect as much as affection",
+    "Why men do things quietly without expecting credit",
+    "Why men get quieter as they get older",
+    "Why men need purpose more than praise",
+    "Why men stop trying when they feel unappreciated",
+    "Why men keep their circle small",
+    "Why men take a long time to trust again"
+  ]
+}

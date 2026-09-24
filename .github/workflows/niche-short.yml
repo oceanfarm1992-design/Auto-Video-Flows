@@ -1,0 +1,155 @@
+name: niche-short
+
+# Reusable pipeline for topic-based series (men_psychology, power_psychology).
+# Called by men-short.yml / power-short.yml. TikTok/Facebook/Instagram post via the
+# main Buffer account; YouTube posts via a SECOND Buffer account. No Zapier here.
+
+on:
+  workflow_call:
+    inputs:
+      niche:
+        description: "Series id: file name in config/niches/ without .json"
+        type: string
+        required: true
+      skip_post:
+        type: boolean
+        default: true
+      topic_index:
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build_and_post:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: niche-${{ inputs.niche }}
+      cancel-in-progress: false
+    env:
+      NICHE_CFG: config/niches/${{ inputs.niche }}.json
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core espeak-ng
+
+      - name: Install python deps
+        run: |
+          pip install torch==2.8.0+cpu torchaudio==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Generate script (OpenAI GPT)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          TOPIC_ARG=""
+          if [ -n "${{ inputs.topic_index }}" ]; then
+            TOPIC_ARG="--topic-index ${{ inputs.topic_index }}"
+          fi
+          python scripts/generate_script_niche.py --niche "$NICHE_CFG" $TOPIC_ARG
+
+      # Fact-check; on a failed verdict regenerate once with a fresh topic.
+      - name: Fact-check narration (OpenAI web search)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          if ! python scripts/factcheck_script.py; then
+            echo "Failed fact-check; regenerating once with a new topic..."
+            python scripts/generate_script_niche.py --niche "$NICHE_CFG"
+            python scripts/factcheck_script.py
+          fi
+
+      - name: Generate TTS voiceover
+        env:
+          VOICE_REPO_PAT: ${{ secrets.VOICE_REPO_PAT }}
+        run: python scripts/generate_tts.py
+
+      - name: Generate captions (Whisper)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: python scripts/generate_captions.py
+
+      - name: Fetch multi-segment footage
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
+        run: python scripts/fetch_footage_multi.py
+
+      - name: Generate background music
+        run: python scripts/generate_music.py
+
+      - name: Assemble video
+        run: python scripts/assemble_video.py --config "$NICHE_CFG"
+
+      - name: Publish video as release asset
+        id: publish_asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.niche }}-$(date -u +%Y%m%d-%H%M%S)"
+          gh release create "$TAG" build/final.mp4 \
+            --title "$TAG" --notes "Automated short" --latest=false
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/final.mp4"
+          echo "video_url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Public video URL: $URL"
+
+      - name: Post to TikTok + Facebook + Instagram (Buffer account 1)
+        id: post_buffer
+        if: ${{ inputs.skip_post != true }}
+        continue-on-error: true
+        env:
+          BUFFER_TOKEN: ${{ secrets.BUFFER_API_KEY }}
+          BUFFER_ORG_ID: ${{ secrets.BUFFER_ORG_ID }}
+        run: |
+          python scripts/post_buffer.py \
+            --video-url "${{ steps.publish_asset.outputs.video_url }}" \
+            --script build/script.json \
+            --caption-file build/caption_meta.txt \
+            --caption-file-tiktok build/caption_tiktok.txt \
+            --services tiktok,facebook,instagram
+
+      - name: Post to YouTube (Buffer account 2)
+        id: post_youtube
+        if: ${{ inputs.skip_post != true }}
+        continue-on-error: true
+        env:
+          BUFFER_TOKEN: ${{ secrets.BUFFER_YT_API_KEY }}
+          BUFFER_ORG_ID: ${{ secrets.BUFFER_YT_ORG_ID }}
+        run: |
+          if [ -z "$BUFFER_TOKEN" ]; then
+            echo "BUFFER_YT_API_KEY secret not set; skipping YouTube."
+            exit 0
+          fi
+          python scripts/post_buffer.py \
+            --video-url "${{ steps.publish_asset.outputs.video_url }}" \
+            --script build/script.json \
+            --caption-file build/caption_meta.txt \
+            --caption-file-youtube build/yt_description.txt \
+            --title-file build/yt_title.txt \
+            --services youtube
+
+      - name: Append run to history log
+        if: always()
+        run: |
+          DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          HIST=$(python -c "import json;print(json.load(open('$NICHE_CFG'))['history_log'])")
+          USED=$(python -c "import json;print(json.load(open('$NICHE_CFG'))['used_log'])")
+          TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
+          FACTCHECK=$(python -c "import json;print(json.load(open('build/factcheck.json'))['verdict'])" 2>/dev/null || echo "unknown")
+          echo "${DATE},\"${TITLE}\",factcheck=${FACTCHECK},buffer=${{ steps.post_buffer.outcome }},youtube=${{ steps.post_youtube.outcome }}" >> "$HIST"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$HIST" "$USED" 2>/dev/null || true
+          git commit -m "log: ${{ inputs.niche }} run ${DATE}" || { echo "nothing to commit"; exit 0; }
+          for i in 1 2 3; do
+            git pull --rebase && git push && break
+            sleep 5
+          done

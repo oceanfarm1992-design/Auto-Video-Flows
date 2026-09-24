@@ -149,3 +149,18 @@ set `SHEET_WEBHOOK_URL` to test it. The old direct-API posters are unwired (see 
   versions actually installed on the runner.
 - The pipeline is intentionally simple (one JSON config, no framework) — it's a personal
   hobby pipeline, not enterprise software.
+
+## Topic series: "Why men..." and psychology / power
+
+Two extra flows reuse the same pipeline (`.github/workflows/niche-short.yml`):
+
+| Workflow | Config | Schedule (UTC) |
+|---|---|---|
+| `men-short.yml` | `config/niches/men_psychology.json` | 10:30, 16:30 |
+| `power-short.yml` | `config/niches/power_psychology.json` | 12:30, 18:30 |
+
+Topics come from the config's `topics` list (edit freely). Each script is fact-checked, voiced, and posted to TikTok/Facebook/Instagram via the main Buffer account (`BUFFER_API_KEY`, `BUFFER_ORG_ID`) and to YouTube via a second Buffer account. No Zapier is used.
+
+Extra repo secrets (add in GitHub → Settings → Secrets → Actions): `BUFFER_YT_API_KEY`, `BUFFER_YT_ORG_ID`. If `BUFFER_YT_API_KEY` is empty, the YouTube step is skipped.
+
+Test without posting: `gh workflow run men-short.yml -f skip_post=true`.

@@ -1,0 +1,56 @@
+{
+  "_comment": "Series config for the human psychology / power / influence flow. Read by scripts/generate_script_niche.py; the 'video' block is also passed to assemble_video.py --config. Add/remove topics freely.",
+
+  "id": "power_psychology",
+  "channel_description": "short human-psychology videos about power, influence, self-control and emotional mastery, grounded in well-established psychology",
+  "tone": "calm, confident, second-person, thought-provoking; opens with a question or a surprising truth and ends on one memorable line",
+  "field": "psychology",
+  "footage_hint": "filmable stock scenes: chess pieces, a calm person in a busy crowd, a silhouette on a mountain, a lion or eagle, a person breathing deeply, a boardroom, city timelapse, storm clouds clearing, a person walking away, hands closing a book",
+  "history_log": "logs/history_power_psychology.csv",
+  "used_log": "logs/used_power_psychology.json",
+
+  "video": {
+    "cta_text": "Follow for more",
+    "min_seconds": 30,
+    "max_seconds": 75
+  },
+
+  "tiktok_seo_keywords": [
+    "psychology facts", "human psychology", "power dynamics", "emotional control",
+    "self control", "mind control", "influence psychology", "mindset",
+    "self improvement", "dark psychology", "emotional intelligence", "stoic mindset"
+  ],
+
+  "topics": [
+    "Do you know who is more powerful? The one who can control his emotions",
+    "Why the calmest person in the room holds the power",
+    "How power really works: it is given by attention",
+    "Why people follow confidence, not volume",
+    "Why the person who needs approval the least holds the most influence",
+    "Why reacting gives your power away",
+    "How to control your emotions in a heated moment",
+    "Why silence is one of the strongest forms of power",
+    "Why emotional control is the highest form of strength",
+    "Why people trust those who stay calm under pressure",
+    "Why the person who cares less controls the situation",
+    "Why anger makes you weaker",
+    "Why respect is never demanded, only earned",
+    "Why patience is a form of psychological power",
+    "Why self-discipline is power over yourself first",
+    "Why people underestimate quiet people",
+    "The psychology of reciprocity: why favors create obligation",
+    "The psychology of social proof: why we copy the crowd",
+    "The psychology of scarcity: why we want what is limited",
+    "The psychology of authority: why we obey confident voices",
+    "Why the mind believes what it hears repeatedly",
+    "Why first impressions are so hard to change",
+    "Why we fear losing more than we love winning",
+    "Why detachment makes you harder to manipulate",
+    "How manipulators use your emotions, and how to stay immune",
+    "Why humans crave status",
+    "Why consistency builds more influence than intensity",
+    "Why the loudest person in the room is rarely the most powerful",
+    "Why you are more influenced by your environment than you think",
+    "Why thinking before you speak changes how people see you"
+  ]
+}
