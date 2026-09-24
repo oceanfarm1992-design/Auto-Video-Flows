@@ -91,7 +91,7 @@ jobs:
       - name: Generate TTS voiceover
         env:
           VOICE_REPO_PAT: ${{ secrets.VOICE_REPO_PAT }}
-        run: python scripts/generate_tts.py
+        run: python scripts/generate_tts.py --engine styletts2
 
       # ── Stage 3: Whisper-synced captions (word-level timestamps) ─────────────
       - name: Generate captions (Whisper word-level sync)

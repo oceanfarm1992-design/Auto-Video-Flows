@@ -72,7 +72,7 @@ jobs:
       - name: Generate TTS voiceover
         env:
           VOICE_REPO_PAT: ${{ secrets.VOICE_REPO_PAT }}
-        run: python scripts/generate_tts.py
+        run: python scripts/generate_tts.py --engine styletts2
 
       - name: Generate captions (Whisper)
         env:
