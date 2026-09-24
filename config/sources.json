@@ -81,7 +81,7 @@
     "height": 1920,
     "words_per_second": 2.6,
     "min_seconds": 30,
-    "max_seconds": 62,
+    "max_seconds": 90,
     "cta_text": "Follow for daily wisdom",
     "font_hint": "DejaVuSans (preinstalled on GitHub Ubuntu runners)"
   }
