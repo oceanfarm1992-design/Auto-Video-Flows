@@ -54,10 +54,12 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           NEWS_SECRETS: ${{ secrets.NEWS_SECRETS }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          TOPIC_INDEX: ${{ inputs.topic_index }}
         run: |
           TOPIC_ARG=""
-          if [ -n "${{ inputs.topic_index }}" ]; then
-            TOPIC_ARG="--topic-index ${{ inputs.topic_index }}"
+          if [ -n "$TOPIC_INDEX" ]; then
+            case "$TOPIC_INDEX" in *[!0-9]*) echo "topic_index must be a number"; exit 1;; esac
+            TOPIC_ARG="--topic-index $TOPIC_INDEX"
           fi
           python scripts/generate_script_ai.py $TOPIC_ARG
 
@@ -175,5 +177,12 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/history.csv logs/used_topics.json 2>/dev/null || true
-          git commit -m "log: daily run ${DATE}" || echo "nothing to commit"
-          git push
+          git commit -m "log: daily run ${DATE}" || { echo "nothing to commit"; exit 0; }
+          # Never fail the job over the log commit: a failed job triggers
+          # retry-on-failure, which would re-post a second video.
+          for i in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          echo "::warning::could not push history log; continuing"
+          exit 0

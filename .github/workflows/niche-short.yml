@@ -49,10 +49,12 @@ jobs:
       - name: Generate script (OpenAI GPT)
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TOPIC_INDEX: ${{ inputs.topic_index }}
         run: |
           TOPIC_ARG=""
-          if [ -n "${{ inputs.topic_index }}" ]; then
-            TOPIC_ARG="--topic-index ${{ inputs.topic_index }}"
+          if [ -n "$TOPIC_INDEX" ]; then
+            case "$TOPIC_INDEX" in *[!0-9]*) echo "topic_index must be a number"; exit 1;; esac
+            TOPIC_ARG="--topic-index $TOPIC_INDEX"
           fi
           python scripts/generate_script_niche.py --niche "$NICHE_CFG" $TOPIC_ARG
 
@@ -126,6 +128,7 @@ jobs:
         run: |
           if [ -z "$BUFFER_TOKEN" ]; then
             echo "BUFFER_YT_API_KEY secret not set; skipping YouTube."
+            echo "yt_skipped=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
           python scripts/post_buffer.py \
@@ -144,12 +147,14 @@ jobs:
           USED=$(python -c "import json;print(json.load(open('$NICHE_CFG'))['used_log'])")
           TITLE=$(python -c "import json;print(json.load(open('build/script.json'))['title'])" 2>/dev/null || echo "unknown")
           FACTCHECK=$(python -c "import json;print(json.load(open('build/factcheck.json'))['verdict'])" 2>/dev/null || echo "unknown")
-          echo "${DATE},\"${TITLE}\",factcheck=${FACTCHECK},buffer=${{ steps.post_buffer.outcome }},youtube=${{ steps.post_youtube.outcome }}" >> "$HIST"
+          echo "${DATE},\"${TITLE}\",factcheck=${FACTCHECK},buffer=${{ steps.post_buffer.outcome }},youtube=${{ steps.post_youtube.outputs.yt_skipped == 'true' && 'skipped' || steps.post_youtube.outcome }}" >> "$HIST"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "$HIST" "$USED" 2>/dev/null || true
           git commit -m "log: ${{ inputs.niche }} run ${DATE}" || { echo "nothing to commit"; exit 0; }
           for i in 1 2 3; do
-            git pull --rebase && git push && break
+            git pull --rebase && git push && exit 0
             sleep 5
           done
+          echo "::warning::could not push history log"
+          exit 0

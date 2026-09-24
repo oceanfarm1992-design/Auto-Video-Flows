@@ -145,8 +145,8 @@ def normalise(data: dict, cfg: dict, topic: str) -> dict:
     data["text"] = data.get("lesson", "")
     data["narration"] = data.get("narration", "")
     data["footage_query"] = data.get("footage_query") or f"{cfg['field']} cinematic"
-    data.setdefault("caption_tiktok", data.get("caption_instagram", ""))
-    data.setdefault("hashtags_tiktok", data.get("hashtags_instagram", "#fyp"))
+    data["caption_tiktok"] = data.get("caption_tiktok") or data.get("caption_instagram", "")
+    data["hashtags_tiktok"] = data.get("hashtags_tiktok") or data.get("hashtags_instagram", "#fyp")
     return data
 
 
