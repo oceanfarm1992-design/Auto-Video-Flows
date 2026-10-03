@@ -145,13 +145,18 @@ def run_factcheck(client: OpenAI, data: dict, model: str) -> dict:
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", default="build/script.json")
-    ap.add_argument("--model", default="gpt-4o",
+    ap.add_argument("--model", default=None,
                      help="Should be a stronger/independent model than the one that wrote "
-                          "the narration, with web search available.")
+                          "the narration, with web search available. Defaults to gpt-4o for "
+                          "the daily historical-figure flow (real facts, higher hallucination "
+                          "stakes) and the cheaper gpt-4o-mini for the niche series (no real "
+                          "facts expected per the writer prompt, and most are skipped anyway "
+                          "by has_checkable_claim above).")
     args = ap.parse_args()
 
     script_path = Path(args.script)
     data = json.loads(script_path.read_text(encoding="utf-8"))
+    model = args.model or ("gpt-4o-mini" if data.get("niche") else "gpt-4o")
 
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
@@ -172,10 +177,10 @@ def main():
         )
         return
 
-    print(f"[factcheck_script] Checking narration about '{who}' with {args.model} (web search) ...")
+    print(f"[factcheck_script] Checking narration about '{who}' with {model} (web search) ...")
 
     try:
-        result = run_factcheck(client, data, args.model)
+        result = run_factcheck(client, data, model)
     except Exception as exc:  # noqa: BLE001 — a broken checker shouldn't kill the daily run
         print(f"[factcheck_script] fact-check call failed ({type(exc).__name__}: {exc}); "
               f"continuing without verification.", file=sys.stderr)
