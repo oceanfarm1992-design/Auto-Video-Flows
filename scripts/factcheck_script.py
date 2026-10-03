@@ -30,8 +30,15 @@ writer prompt already forbids inventing studies/stats/quotes, so most scripts
 have nothing fact-checkable in them. CHECKABLE_PATTERN below skips the paid
 web-search call for niche narrations that contain no digits, quotes, or
 citation-style language, instead of calling it on every single run.
-Historical-figure narrations (daily flow) are never skipped — those always
-name real, checkable facts.
+
+For the daily (historical-figure) flow, every narration does name real,
+checkable facts, so it's never skipped — but it no longer pays for OpenAI's
+web_search tool on the common case either. wiki_lookup.py fetches the
+figure's Wikipedia extract for free first; if that's found, a plain
+gpt-4o-mini chat call fact-checks the narration against that reference text
+instead of a web-search-enabled gpt-4o call. Only when Wikipedia has no page
+or too little content (a very recent/trending figure) does it fall back to
+the original gpt-4o + web_search path.
 
 Usage:
     python scripts/factcheck_script.py
@@ -49,7 +56,31 @@ try:
 except ImportError:
     sys.exit("openai package not installed. Run: pip install openai")
 
+import wiki_lookup
+
 BUILD_DIR = Path("build")
+
+WIKI_MODEL = "gpt-4o-mini"  # reference text is supplied, so the cheap model is enough
+
+WIKI_SYSTEM_PROMPT = (
+    "You are a rigorous fact-checker for a motivational history video. You are given a "
+    "Wikipedia reference extract about a historical figure and a narration script about "
+    "them. Check every concrete factual claim in the narration (dates, numbers, named "
+    "events, quotes, attributed achievements) against the reference text. If the "
+    "reference doesn't mention a specific detail but it isn't contradicted and is "
+    "plausible, don't flag it — only flag claims the reference text actually "
+    "contradicts or that are clearly wrong. Ignore subjective framing, motivational "
+    "language, and the closing lesson/moral line.\n\n"
+    "Respond with ONLY valid JSON (no markdown fences), exactly these keys:\n"
+    '{"verdict": "pass" | "minor_issues" | "major_issues", '
+    '"issues": [{"claim": "...", "problem": "...", "correction": "..."}], '
+    '"corrected_narration": "..."}\n\n'
+    '"corrected_narration" must be the FULL narration text (same style, tone, and '
+    'approximate length as the original — only the specific wrong details fixed) '
+    'whenever verdict is "minor_issues"; leave it as an empty string otherwise. Reserve '
+    '"major_issues" for when the reference text contradicts the central story itself, '
+    "not a single wrong date or number."
+)
 
 SYSTEM_PROMPT = (
     "You are a rigorous fact-checker for a motivational history video. "
@@ -142,6 +173,26 @@ def run_factcheck(client: OpenAI, data: dict, model: str) -> dict:
     return parse_json_response(response.output_text)
 
 
+def run_factcheck_with_reference(client: OpenAI, data: dict, reference: str) -> dict:
+    """Fact-check against a supplied reference text (Wikipedia extract) with a plain
+    chat completion — no web_search tool, so no per-call search fee and a cheap model
+    is enough since the model isn't doing its own research."""
+    prompt = (
+        f"Wikipedia reference extract:\n{reference}\n\n"
+        f"Narration to fact-check:\n{data.get('narration', '')}"
+    )
+    response = client.chat.completions.create(
+        model=WIKI_MODEL,
+        messages=[
+            {"role": "system", "content": WIKI_SYSTEM_PROMPT},
+            {"role": "user", "content": prompt},
+        ],
+        temperature=0.2,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(response.choices[0].message.content)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", default="build/script.json")
@@ -177,10 +228,19 @@ def main():
         )
         return
 
-    print(f"[factcheck_script] Checking narration about '{who}' with {model} (web search) ...")
+    wiki_context = None if data.get("niche") else wiki_lookup.get_context(who)
+
+    if wiki_context:
+        print(f"[factcheck_script] Checking narration about '{who}' against Wikipedia "
+              f"(free) with {WIKI_MODEL} ...")
+    else:
+        print(f"[factcheck_script] Checking narration about '{who}' with {model} (web search) ...")
 
     try:
-        result = run_factcheck(client, data, model)
+        if wiki_context:
+            result = run_factcheck_with_reference(client, data, wiki_context)
+        else:
+            result = run_factcheck(client, data, model)
     except Exception as exc:  # noqa: BLE001 — a broken checker shouldn't kill the daily run
         print(f"[factcheck_script] fact-check call failed ({type(exc).__name__}: {exc}); "
               f"continuing without verification.", file=sys.stderr)
