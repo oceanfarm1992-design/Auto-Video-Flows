@@ -266,8 +266,10 @@ def main():
     ap.add_argument("--out", default=str(BUILD_DIR))
     ap.add_argument("--topic-index", type=int, default=None)
     ap.add_argument("--model", default="gpt-4o-mini")
-    ap.add_argument("--trending-model", default="gpt-4o",
-                     help="Model used for trending-topic selection (needs web search).")
+    ap.add_argument("--trending-model", default="gpt-4o-mini",
+                     help="Model used for trending-topic selection (needs web search). "
+                          "Kept cheap (mini) — this is a pick-one-of-N-results task, not "
+                          "fact-sensitive writing, so the full model isn't needed.")
     ap.add_argument("--no-trending", action="store_true",
                      help="Skip trending lookup and always use the static topic list.")
     args = ap.parse_args()

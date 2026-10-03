@@ -24,6 +24,15 @@ Output: overwrites build/script.json ("narration") and build/script.txt when
 corrected; always writes build/factcheck.json with the full verdict for the
 run log / manual review.
 
+Cost note: this stage's web-search call is the most expensive step in the
+whole pipeline. For the niche series (men_psychology/power_psychology), the
+writer prompt already forbids inventing studies/stats/quotes, so most scripts
+have nothing fact-checkable in them. CHECKABLE_PATTERN below skips the paid
+web-search call for niche narrations that contain no digits, quotes, or
+citation-style language, instead of calling it on every single run.
+Historical-figure narrations (daily flow) are never skipped — those always
+name real, checkable facts.
+
 Usage:
     python scripts/factcheck_script.py
     python scripts/factcheck_script.py --model gpt-4o
@@ -31,6 +40,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -78,6 +88,23 @@ NICHE_SYSTEM_PROMPT = (
     '"minor_issues"; otherwise an empty string. Use "major_issues" only when the central '
     "claim of the video is false, a debunked myth, or unverifiable."
 )
+
+
+CHECKABLE_PATTERN = re.compile(
+    r"\d"                                      # any number (year, %, count, "3x")
+    r"|\bstudy\b|\bstudies\b|\bresearch\b|\bresearcher|\bscientist"
+    r"|\bexperiment|\bsurvey\b|\baccording to\b|\buniversity\b|\bpublished\b"
+    r"|\"[^\"]{6,}\"",                         # a quoted phrase long enough to be a real quote
+    re.IGNORECASE,
+)
+
+
+def has_checkable_claim(narration: str) -> bool:
+    """Whether a niche narration contains anything a web-search fact-check could
+    actually verify (a number, a named study/researcher, or a quote). The niche
+    writer prompt forbids inventing these, so most scripts have none — skipping
+    the paid search call for those is free, not a quality tradeoff."""
+    return bool(CHECKABLE_PATTERN.search(narration))
 
 
 def build_prompt(data: dict) -> str:
@@ -133,6 +160,18 @@ def main():
 
     BUILD_DIR.mkdir(exist_ok=True)
     who = data.get("author") or data.get("topic") or data.get("id", "unknown")
+
+    narration = data.get("narration", "")
+    if data.get("niche") and not has_checkable_claim(narration):
+        print(f"[factcheck_script] '{who}': no numbers/studies/quotes in the narration "
+              f"to verify; skipping the web-search fact-check.")
+        (BUILD_DIR / "factcheck.json").write_text(
+            json.dumps({"verdict": "skipped_no_claims", "issues": [], "corrected_narration": ""},
+                       indent=2),
+            encoding="utf-8",
+        )
+        return
+
     print(f"[factcheck_script] Checking narration about '{who}' with {args.model} (web search) ...")
 
     try:
