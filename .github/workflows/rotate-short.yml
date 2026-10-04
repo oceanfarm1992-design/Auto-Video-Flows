@@ -1,12 +1,14 @@
 name: rotate-short
 
 # Single daily trigger for the whole pipeline: one video/day total, rotating
-# through daily-short (historical/trending), men-short and power-short in
-# turn, instead of running all three on their own schedules.
+# between men-short and power-short, instead of running them on their own
+# schedules. daily-short (historical/trending figures) is no longer run
+# automatically — the workflow file is kept for manual `workflow_dispatch`
+# runs only (or use rotate-short's force_flow input).
 #
-# Rotation key = days since the Unix epoch, mod 3 — deterministic, no state
-# to store, and unaffected by month/year length:
-#   0 -> daily-short   1 -> men-short   2 -> power-short
+# Rotation key = days since the Unix epoch, mod 2 — deterministic, no state
+# to store:
+#   0 -> men-short   1 -> power-short
 
 on:
   schedule:
@@ -39,11 +41,10 @@ jobs:
           if [ -n "$FORCE_FLOW" ]; then
             WF="$FORCE_FLOW"
           else
-            DAY_INDEX=$(( $(date -u +%s) / 86400 % 3 ))
+            DAY_INDEX=$(( $(date -u +%s) / 86400 % 2 ))
             case $DAY_INDEX in
-              0) WF="daily-short" ;;
-              1) WF="men-short" ;;
-              2) WF="power-short" ;;
+              0) WF="men-short" ;;
+              1) WF="power-short" ;;
             esac
           fi
           echo "Today's flow: $WF (skip_post=$SKIP_POST)"

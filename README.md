@@ -167,14 +167,18 @@ Test without posting: `gh workflow run men-short.yml -f skip_post=true`.
 
 ### Schedule: one video/day, rotating flows
 
-`daily-short.yml`, `men-short.yml` and `power-short.yml` have no schedule of their own
-anymore — `.github/workflows/rotate-short.yml` runs once a day at **14:00 UTC** and
-triggers exactly one of them, in rotation:
+`men-short.yml` and `power-short.yml` have no schedule of their own anymore —
+`.github/workflows/rotate-short.yml` runs once a day at **14:00 UTC** and triggers
+exactly one of them, in rotation:
 
 ```
-day 1 -> daily-short    day 2 -> men-short    day 3 -> power-short    day 4 -> daily-short  ...
+day 1 -> men-short    day 2 -> power-short    day 3 -> men-short  ...
 ```
 
-The rotation key is `(days since epoch) % 3`, so it's deterministic with nothing to
-store, and self-corrects if a run is skipped. Force a specific flow (e.g. for testing)
-with `gh workflow run rotate-short.yml -f force_flow=men-short -f skip_post=true`.
+The rotation key is `(days since epoch) % 2`, so it's deterministic with nothing to
+store. Force a specific flow (e.g. for testing) with
+`gh workflow run rotate-short.yml -f force_flow=men-short -f skip_post=true`.
+
+`daily-short.yml` (the original historical/trending-figure series) is **no longer run
+automatically**. The workflow file is kept for manual runs only:
+`gh workflow run daily-short.yml -f skip_post=true`.
