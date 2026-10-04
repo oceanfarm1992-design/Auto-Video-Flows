@@ -2,9 +2,7 @@ name: daily-short
 
 on:
   schedule:
-    - cron: "0 8  * * *"   # TikTok run 1 — 08:00 UTC (morning)
-    - cron: "0 14 * * *"   # TikTok run 2 — 14:00 UTC (midday) + Zapier post
-    - cron: "0 20 * * *"   # TikTok run 3 — 20:00 UTC (evening)
+    - cron: "0 14 * * *"   # one run/day — 14:00 UTC (midday)
   workflow_dispatch:
     inputs:
       footage_source:
