@@ -1,0 +1,50 @@
+name: rotate-short
+
+# Single daily trigger for the whole pipeline: one video/day total, rotating
+# through daily-short (historical/trending), men-short and power-short in
+# turn, instead of running all three on their own schedules.
+#
+# Rotation key = days since the Unix epoch, mod 3 — deterministic, no state
+# to store, and unaffected by month/year length:
+#   0 -> daily-short   1 -> men-short   2 -> power-short
+
+on:
+  schedule:
+    - cron: "0 14 * * *"   # 14:00 UTC, once/day
+  workflow_dispatch:
+    inputs:
+      skip_post:
+        description: "Build only, do not post"
+        type: boolean
+        default: true
+      force_flow:
+        description: "Force a specific flow instead of the daily rotation"
+        type: choice
+        options: ["", "daily-short", "men-short", "power-short"]
+        default: ""
+
+permissions:
+  actions: write
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Pick today's flow and trigger it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SKIP_POST: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_post || false }}
+          FORCE_FLOW: ${{ inputs.force_flow }}
+        run: |
+          if [ -n "$FORCE_FLOW" ]; then
+            WF="$FORCE_FLOW"
+          else
+            DAY_INDEX=$(( $(date -u +%s) / 86400 % 3 ))
+            case $DAY_INDEX in
+              0) WF="daily-short" ;;
+              1) WF="men-short" ;;
+              2) WF="power-short" ;;
+            esac
+          fi
+          echo "Today's flow: $WF (skip_post=$SKIP_POST)"
+          gh workflow run "$WF.yml" -f skip_post="$SKIP_POST" --repo "${{ github.repository }}"

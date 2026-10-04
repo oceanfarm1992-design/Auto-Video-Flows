@@ -1,8 +1,8 @@
 name: daily-short
 
 on:
-  schedule:
-    - cron: "0 14 * * *"   # one run/day — 14:00 UTC (midday)
+  # No schedule here — rotate-short.yml runs once/day at 14:00 UTC and
+  # triggers whichever of daily-short/men-short/power-short is today's turn.
   workflow_dispatch:
     inputs:
       footage_source:

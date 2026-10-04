@@ -154,13 +154,27 @@ set `SHEET_WEBHOOK_URL` to test it. The old direct-API posters are unwired (see 
 
 Two extra flows reuse the same pipeline (`.github/workflows/niche-short.yml`):
 
-| Workflow | Config | Schedule (UTC) |
-|---|---|---|
-| `men-short.yml` | `config/niches/men_psychology.json` | 10:30, 16:30 |
-| `power-short.yml` | `config/niches/power_psychology.json` | 12:30, 18:30 |
+| Workflow | Config |
+|---|---|
+| `men-short.yml` | `config/niches/men_psychology.json` |
+| `power-short.yml` | `config/niches/power_psychology.json` |
 
 Topics come from the config's `topics` list (edit freely). Each script is fact-checked, voiced, and posted to TikTok/Facebook/Instagram via the main Buffer account (`BUFFER_API_KEY`, `BUFFER_ORG_ID`) and to YouTube via a second Buffer account. No Zapier is used.
 
 Extra repo secrets (add in GitHub → Settings → Secrets → Actions): `BUFFER_YT_API_KEY`, `BUFFER_YT_ORG_ID`. If `BUFFER_YT_API_KEY` is empty, the YouTube step is skipped.
 
 Test without posting: `gh workflow run men-short.yml -f skip_post=true`.
+
+### Schedule: one video/day, rotating flows
+
+`daily-short.yml`, `men-short.yml` and `power-short.yml` have no schedule of their own
+anymore — `.github/workflows/rotate-short.yml` runs once a day at **14:00 UTC** and
+triggers exactly one of them, in rotation:
+
+```
+day 1 -> daily-short    day 2 -> men-short    day 3 -> power-short    day 4 -> daily-short  ...
+```
+
+The rotation key is `(days since epoch) % 3`, so it's deterministic with nothing to
+store, and self-corrects if a run is skipped. Force a specific flow (e.g. for testing)
+with `gh workflow run rotate-short.yml -f force_flow=men-short -f skip_post=true`.

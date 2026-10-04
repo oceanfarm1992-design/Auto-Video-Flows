@@ -1,9 +1,8 @@
 name: men-short
 
 on:
-  schedule:
-    - cron: "30 10 * * *"
-    - cron: "30 16 * * *"
+  # No schedule here — rotate-short.yml runs once/day at 14:00 UTC and
+  # triggers whichever of daily-short/men-short/power-short is today's turn.
   workflow_dispatch:
     inputs:
       skip_post:
