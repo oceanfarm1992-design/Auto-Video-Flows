@@ -106,7 +106,8 @@ jobs:
         run: |
           echo "Voice engine: $ENGINE"
           case "$ENGINE" in
-            styletts2*) ;;
+            styletts2+rvc) ;;
+            styletts2*) echo "::warning::RVC conversion did not run (engine=$ENGINE); voice is the plain StyleTTS2 clone" ;;
             *) echo "::error::cloned voice not used (engine=$ENGINE)"; exit 1 ;;
           esac
 
@@ -177,7 +178,7 @@ jobs:
 
       # Only on the default branch, so test runs of a feature branch never write logs.
       - name: Append run to history log
-        if: ${{ always() && github.ref_name == github.event.repository.default_branch }}
+        if: ${{ always() && github.ref == 'refs/heads/main' }}
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           HIST=$(python -c "import json;print(json.load(open('$NICHE_CFG'))['history_log'])")
