@@ -17,6 +17,10 @@ on:
       topic_index:
         type: string
         default: ""
+      voice_style:
+        description: "Speaking style from the voice profile (blank = voice_style in the niche config)"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -69,10 +73,42 @@ jobs:
             python scripts/factcheck_script.py
           fi
 
-      - name: Generate TTS voiceover
+      # Voice: the shared engine (StyleTTS2 + the user's RVC model + a speaking style
+      # from the private profile.json), not scripts/generate_tts.py's plain clone.
+      - name: Pick voice style
+        id: voice_cfg
         env:
-          VOICE_REPO_PAT: ${{ secrets.VOICE_REPO_PAT }}
-        run: python scripts/generate_tts.py --engine styletts2
+          STYLE_OVERRIDE: ${{ inputs.voice_style }}
+        run: |
+          STYLE="$STYLE_OVERRIDE"
+          [ -n "$STYLE" ] || STYLE=$(python -c "import json;print(json.load(open('$NICHE_CFG')).get('voice_style','default'))")
+          echo "Voice style: $STYLE"
+          echo "style=$STYLE" >> "$GITHUB_OUTPUT"
+
+      - name: Generate TTS voiceover (cloned voice + speaking style)
+        id: voice
+        uses: oceanfarm1992-design/styletts2-voice-clone@main
+        with:
+          engines: styletts2 rvc
+          python-version: "3.11"
+          script: build/script.txt
+          out: build/voice.wav
+          language: en
+          style: ${{ steps.voice_cfg.outputs.style }}
+          voice-ref-repo: oceanfarm1992-design/voice-reference-audio
+          voice-repo-pat: ${{ secrets.VOICE_REPO_PAT }}
+
+      # The engine silently falls back to stock voices if cloning fails. Every video
+      # must be the cloned voice, so fail the run instead of posting a stock voice.
+      - name: Require the cloned voice
+        env:
+          ENGINE: ${{ steps.voice.outputs.engine }}
+        run: |
+          echo "Voice engine: $ENGINE"
+          case "$ENGINE" in
+            styletts2*) ;;
+            *) echo "::error::cloned voice not used (engine=$ENGINE)"; exit 1 ;;
+          esac
 
       - name: Generate captions (Whisper)
         env:
@@ -139,8 +175,9 @@ jobs:
             --title-file build/yt_title.txt \
             --services youtube
 
+      # Only on the default branch, so test runs of a feature branch never write logs.
       - name: Append run to history log
-        if: always()
+        if: ${{ always() && github.ref_name == github.event.repository.default_branch }}
         run: |
           DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           HIST=$(python -c "import json;print(json.load(open('$NICHE_CFG'))['history_log'])")

@@ -4,6 +4,7 @@
   "id": "men_psychology",
   "channel_description": "short psychology videos explaining why men think, feel and behave the way they do, told with empathy and respect for everyone",
   "tone": "calm, direct, second-person, quietly powerful; speaks to men who feel understood and to people who love them",
+  "voice_style": "presentation",
   "field": "men",
   "footage_hint": "filmable stock scenes: a man alone by a window at dusk, a man working late, silhouette on a rooftop, hands on a steering wheel, a father with a child, a man walking city streets at night, gym or workshop, a man looking at the horizon",
   "history_log": "logs/history_men_psychology.csv",
