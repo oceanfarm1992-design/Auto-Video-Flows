@@ -12,9 +12,6 @@ on:
       topic_index:
         description: "Force a topic index (blank = random)"
         default: ""
-      voice_style:
-        description: "Speaking style (blank = voice_style in the niche config)"
-        default: ""
 
 permissions:
   contents: write
@@ -26,5 +23,4 @@ jobs:
       niche: power_psychology
       skip_post: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_post }}
       topic_index: ${{ inputs.topic_index || '' }}
-      voice_style: ${{ inputs.voice_style || '' }}
     secrets: inherit
