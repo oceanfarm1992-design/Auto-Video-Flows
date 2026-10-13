@@ -8,8 +8,9 @@ narration segment from SCENES below, so every visual is something the engine can
 really draw and it always matches what is being said. pick_scene() is the keyword
 fallback when a segment has no valid scene id.
 
-Layout: figures stand on GROUND_Y (lower band); props, sky and bubbles use the
-band above the centre-screen captions (y ~ 420-880).
+Layout: scenes are drawn in DESIGN coordinates (ground at GROUND_Y = 1540) which the
+engine magnifies, so keep everything inside x 150-930, y 830-1540. Karaoke captions
+sit below the ground line, the hook card above the stage.
 """
 from __future__ import annotations
 
@@ -53,6 +54,16 @@ def walk_pose(t, speed=0.9, swing=28.0, lean=5.0) -> Pose:
 
 def walk_bob(t, speed=0.9) -> float:
     return abs(math.sin(2 * math.pi * speed * t)) * 7
+
+
+def draw_label(c: Canvas, text: str, t: float, dur: float):
+    """One hand-lettered key word/phrase for the beat, popping in (retention device)."""
+    if not text:
+        return
+    k = pop((t - 0.2) / 0.35)
+    if k <= 0.02:
+        return
+    c.text(540, 905, text.upper(), size=int(70 * min(1.0, k)), color=ACCENT, angle=-3.5)
 
 
 # -------------------------------------------------------------------------- props
@@ -220,14 +231,14 @@ def question(c, x, y, size=70, color=ACCENT):
 # ------------------------------------------------------------------------- scenes
 def alone_window(c, t, dur):
     ground(c)
-    c.rect(110, 470, 330, 420, fill=SKY, w=9)
-    c.line([(275, 470), (275, 890)], 6)
-    c.line([(110, 680), (440, 680)], 6)
-    moon(c, 350, 570, 44)
-    for k, (sx, sy) in enumerate([(165, 540), (215, 610), (390, 650), (180, 780), (320, 790)]):
-        star(c, sx, sy, 6 + 5 * max(0.0, wave(t, 0.5, k * 1.1)))
+    c.rect(190, 880, 260, 330, fill=SKY, w=9)
+    c.line([(320, 880), (320, 1210)], 6)
+    c.line([(190, 1045), (450, 1045)], 6)
+    moon(c, 385, 950, 34)
+    for k, (sx, sy) in enumerate([(225, 925), (270, 985), (410, 1010), (230, 1110), (370, 1130)]):
+        star(c, sx, sy, 5 + 4 * max(0.0, wave(t, 0.5, k * 1.1)))
     s, f = 1.05, -1
-    hip = (700.0, hip_y_sitting(s))
+    hip = (690.0, hip_y_sitting(s))
     c.line([(hip[0] + 70, hip[1] + 16), (hip[0] - 80, hip[1] + 16)], 9)
     c.line([(hip[0] + 70, hip[1] + 16), (hip[0] + 70, GROUND_Y)], 9)
     c.line([(hip[0] - 80, hip[1] + 16), (hip[0] - 80, GROUND_Y)], 9)
@@ -237,26 +248,26 @@ def alone_window(c, t, dur):
     for k in range(3):
         r = 7 + 5 * max(0.0, wave(t, 0.6, -k * 0.9))
         c.dot(j["head"][0] + f * (80 + k * 36), j["head"][1] - 70 - k * 22, r)
-    c.focus = (560, 1150)
+    c.focus = (560, 1250)
 
 
 def work_late(c, t, dur):
     ground(c)
-    moon(c, 880, 520, 40, PAPER)
-    clock(c, 270, 600, 90, t * 1.4, 1.0)
+    moon(c, 850, 940, 32, PAPER)
+    clock(c, 300, 960, 66, t * 1.4, 1.0)
     s = 1.05
-    hip = (390.0, hip_y_sitting(s))
+    hip = (350.0, hip_y_sitting(s))
     c.line([(hip[0] - 70, hip[1] + 16), (hip[0] + 60, hip[1] + 16)], 9)
     c.line([(hip[0] - 70, hip[1] + 16), (hip[0] - 70, GROUND_Y)], 9)
     c.line([(hip[0] - 70, hip[1] + 16), (hip[0] - 70, hip[1] - 180)], 9)
-    c.rect(560, 1330, 400, 22, fill=(180, 130, 90), w=7)
-    c.line([(590, 1352), (590, GROUND_Y)], 9)
-    c.line([(930, 1352), (930, GROUND_Y)], 9)
-    c.poly([(640, 1330), (880, 1330), (850, 1240), (670, 1240)], fill=LIGHT, w=7)
+    c.rect(540, 1330, 360, 22, fill=(180, 130, 90), w=7)
+    c.line([(565, 1352), (565, GROUND_Y)], 9)
+    c.line([(875, 1352), (875, GROUND_Y)], 9)
+    c.poly([(610, 1330), (820, 1330), (795, 1245), (635, 1245)], fill=LIGHT, w=7)
     pose = replace(SIT, lean=14, head=10, la=62 + 6 * wave(t, 2.2), le=48, ra=58 + 6 * wave(t, 2.2, 1.5), re=50)
     draw_figure(c, Figure(hip[0], hip[1], s, 1, INK, "worried", pose))
     for k in range(3):
-        c.text(430 + k * 70, 760 - ((t * 60 + k * 40) % 120), "z" if k else "Z", size=44 + k * 8, color=GREY)
+        c.text(420 + k * 60, 1100 - ((t * 50 + k * 30) % 90), "z" if k else "Z", size=34 + k * 6, color=GREY)
 
 
 def carry_weight(c, t, dur):
@@ -264,39 +275,39 @@ def carry_weight(c, t, dur):
     s = 1.05
     pose = walk_pose(t, 0.7, 14, 10)
     pose = replace(pose, la=172, le=-8, ra=165, re=-6)
-    fig = standing(430, s, 1, "worried", pose, walk_bob(t, 0.7) * 0.6)
+    fig = standing(470, s, 1, "worried", pose, walk_bob(t, 0.7) * 0.6)
     j = draw_figure(c, fig)
     top = j["head"][1] - 60
-    c.circle(j["head"][0] + 30, top - 150, 160, w=10, fill=(196, 196, 190))
+    bx, by, br = j["head"][0] + 25, top - 100, 112
+    c.circle(bx, by, br, w=10, fill=(196, 196, 190))
     for a in (200, 250, 300):
-        c.line([(j["head"][0] + 30 + 40 * math.cos(math.radians(a)), top - 150 + 40 * math.sin(math.radians(a))),
-                (j["head"][0] + 30 + 110 * math.cos(math.radians(a + 20)), top - 150 + 110 * math.sin(math.radians(a + 20)))],
-               6, INK, 1.0)
-    c.text(j["head"][0] + 30, top - 150, "!", size=130, color=ACCENT)
+        c.line([(bx + 30 * math.cos(math.radians(a)), by + 30 * math.sin(math.radians(a))),
+                (bx + 80 * math.cos(math.radians(a + 20)), by + 80 * math.sin(math.radians(a + 20)))], 6, INK, 1.0)
+    c.text(bx, by, "!", size=100, color=ACCENT)
     for k in range(3):
         sweat(c, j["head"][0] - 70 - 22 * k, j["head"][1] - 20 + ((t * 90 + k * 40) % 90), 1.0)
-    c.focus = (560, 1000)
+    c.focus = (560, 1150)
 
 
 def give_more(c, t, dur):
     ground(c)
     s = 1.05
-    giver = standing(250, s, 1, "happy", Pose(lean=4, la=80, le=8, ra=70, re=10), 0)
+    giver = standing(270, s, 1, "happy", Pose(lean=4, la=80, le=8, ra=70, re=10), 0)
     j = draw_figure(c, giver)
-    taker = standing(800, 0.8, -1, "happy", Pose(la=95, le=8, ra=85, re=8), 0)
+    taker = standing(790, 0.8, -1, "happy", Pose(la=95, le=8, ra=85, re=8), 0)
     draw_figure(c, taker)
     for k in range(5):
         u = ((t * 0.55 + k * 0.2) % 1.0)
-        x = lerp(j["lhand"][0], 720, u)
-        y = lerp(j["lhand"][1], 1180, u) - math.sin(u * math.pi) * 230
+        x = lerp(j["lhand"][0], 710, u)
+        y = lerp(j["lhand"][1], 1260, u) - math.sin(u * math.pi) * 200
         if k % 2:
             heart(c, x, y, 34)
         else:
             coin(c, x, y, 30)
     left = 6 - int(5 * ease(t / dur))
     for i in range(left):
-        coin(c, 110 + (i % 3) * 40, GROUND_Y - 24 - (i // 3) * 20, 22)
-    c.focus = (520, 1150)
+        coin(c, 190 + (i % 3) * 36, GROUND_Y - 22 - (i // 3) * 18, 20)
+    c.focus = (520, 1250)
 
 
 def closed_wallet(c, t, dur):
@@ -305,15 +316,15 @@ def closed_wallet(c, t, dur):
     pose = replace(STAND, la=70, le=40, head=10 * wave(t, 0.9))
     j = draw_figure(c, standing(330, s, 1, "neutral", pose, 0))
     wallet(c, j["lhand"][0] + 30, j["lhand"][1] - 10)
-    bx, by = 700, 640
-    thought_bubble(c, bx, by, 330, 260, (j["head"][0] + 40, j["head"][1] - 40), pop((t - 0.2) / 0.6))
+    bx, by = 620, 975
+    thought_bubble(c, bx, by, 290, 210, (j["head"][0] + 40, j["head"][1] - 40), pop((t - 0.2) / 0.6))
     if t > 0.5:
-        shopping_bag(c, bx, by + 6, 0.9 * pop((t - 0.5) / 0.5))
+        shopping_bag(c, bx, by + 6, 0.75 * pop((t - 0.5) / 0.5))
     if t > 1.0:
-        x_mark(c, bx, by + 6, 70 * pop((t - 1.0) / 0.4))
-    house(c, 900, GROUND_Y, 230, 170)
-    heart(c, 900, 1240, 36 * (1 + 0.1 * wave(t, 1.4)))
-    c.focus = (560, 1050)
+        x_mark(c, bx, by + 6, 56 * pop((t - 1.0) / 0.4))
+    house(c, 800, GROUND_Y, 210, 160)
+    heart(c, 800, 1250, 34 * (1 + 0.1 * wave(t, 1.4)))
+    c.focus = (560, 1200)
 
 
 def silent_hurt(c, t, dur):
@@ -324,11 +335,11 @@ def silent_hurt(c, t, dur):
     c.line([(hx - 26, hy + 20), (hx + 26, hy + 20)], 8, INK, 0.5)
     for k in range(-2, 3):
         c.line([(hx + k * 10, hy + 14), (hx + k * 10, hy + 26)], 4, INK, 0.4)
-    cloud(c, hx, hy - 330, 1.5, (190, 190, 196))
-    rain(c, hx, hy - 260, 220, t)
+    cloud(c, hx, hy - 235, 1.25, (190, 190, 196))
+    rain(c, hx, hy - 180, 200, t)
     if (t * 2) % 1.6 < 0.35:
-        lightning(c, hx + 70, hy - 280, 1.0)
-    c.focus = (540, 1000)
+        lightning(c, hx + 70, hy - 215, 0.85)
+    c.focus = (540, 1150)
 
 
 def hide_stress(c, t, dur):
@@ -341,71 +352,71 @@ def hide_stress(c, t, dur):
         scribble(c, cx, cy, 52 * pulse, k * 17 + int(t * 6) % 5, 6, ACCENT)
     for k in range(3):
         sweat(c, j["head"][0] + 80 + 12 * k, j["head"][1] - 30 + ((t * 80 + k * 50) % 90), 1.0)
-    c.text(540, 640, "I'm fine", size=88, color=GREY)
-    c.focus = (540, 1100)
+    c.text(540, 940, "I'm fine", size=70, color=GREY)
+    c.focus = (540, 1200)
 
 
 def provider_family(c, t, dur):
     ground(c)
-    sun(c, 180, 560, 56, t)
-    house(c, 860, GROUND_Y, 300, 230)
-    for k, kx in enumerate((830, 910)):
+    sun(c, 230, 940, 42, t)
+    house(c, 790, GROUND_Y, 270, 200)
+    for k, kx in enumerate((765, 835)):
         draw_figure(c, standing(kx, 0.46, -1, "happy", Pose(la=165 + 12 * wave(t, 1.6, k), le=0, ra=20), 0))
     u = ease(t / (dur * 0.7))
-    x = lerp(110, 520, u)
+    x = lerp(200, 520, u)
     walking = u < 0.99
     pose = walk_pose(t, 0.9, 26, 6) if walking else STAND
     j = draw_figure(c, standing(x, 1.05, 1, "happy", pose, walk_bob(t, 0.9) if walking else 0))
     c.rect(j["lhand"][0] - 30, j["lhand"][1] - 4, 64, 46, fill=(150, 98, 64), w=6)
-    c.focus = (620, 1150)
+    c.focus = (600, 1250)
 
 
 def chess_power(c, t, dur):
     ground(c)
-    bx, by = 330, GROUND_Y - 140
-    c.rect(bx, by, 380, 140, fill=(224, 196, 150), w=8)
+    bx, by = 420, GROUND_Y - 130
+    c.rect(bx, by, 360, 130, fill=(224, 196, 150), w=8)
     for r in range(2):
         for k in range(6):
             if (r + k) % 2 == 0:
-                c.rect(bx + k * 63, by + r * 70, 63, 70, fill=(120, 84, 56), w=0)
-    c.line([(bx + 60, by + 140), (bx + 60, GROUND_Y)], 9)
-    c.line([(bx + 320, by + 140), (bx + 320, GROUND_Y)], 9)
-    chess_king(c, 560, by + 6, 0.9)
-    j = draw_figure(c, standing(210, 1.05, 1, "smirk", Pose(la=70, le=40, ra=-8, re=10), 0))
+                c.rect(bx + k * 60, by + r * 65, 60, 65, fill=(120, 84, 56), w=0)
+    c.line([(bx + 50, by + 130), (bx + 50, GROUND_Y)], 9)
+    c.line([(bx + 310, by + 130), (bx + 310, GROUND_Y)], 9)
+    chess_king(c, 600, by + 6, 0.85)
+    j = draw_figure(c, standing(250, 1.05, 1, "smirk", Pose(la=70, le=40, ra=-8, re=10), 0))
     crown(c, j["head"][0], j["head"][1] - 92 - 6 * wave(t, 1.0), 0.8 * pop(t / 0.6))
-    for k, (px, py) in enumerate([(430, 0), (490, 63), (610, 0)]):
-        c.circle(px + 28, by + 36 + py * 0.3, 15, w=6, fill=INK)
-    c.focus = (520, 1100)
+    for k, (px, py) in enumerate([(460, 0), (520, 63), (700, 0)]):
+        c.circle(px + 28, by + 34 + py * 0.3, 14, w=6, fill=INK)
+    c.focus = (520, 1200)
 
 
 def calm_vs_angry(c, t, dur):
     ground(c)
-    angry = standing(250, 0.95, 1, "angry",
+    angry = standing(270, 0.95, 1, "angry",
                      Pose(lean=8, la=140 + 30 * wave(t, 2.4), le=20, ra=120 + 30 * wave(t, 2.4, 1.6), re=20,
                           ll=12 * wave(t, 2.4), rl=-12 * wave(t, 2.4)), abs(wave(t, 1.2)) * 12)
     j = draw_figure(c, angry)
     if (t * 3) % 1 < 0.6:
-        lightning(c, j["head"][0] - 10, j["head"][1] - 330, 0.9)
+        lightning(c, j["head"][0] - 10, j["head"][1] - 235, 0.75)
     for k in range(4):
         a = math.radians(200 + k * 35)
         c.line([(j["head"][0] + math.cos(a) * 90, j["head"][1] + math.sin(a) * 90),
                 (j["head"][0] + math.cos(a) * 130, j["head"][1] + math.sin(a) * 130)], 6, ACCENT, 1.0)
-    calm_x = 780
-    c.circle(calm_x, 1130, 210 + 10 * wave(t, 0.4), w=5, color=(240, 205, 120), fill=None)
+    calm_x = 730
+    c.circle(calm_x, 1230, 190 + 8 * wave(t, 0.4), w=5, color=(240, 205, 120), fill=None)
     draw_figure(c, standing(calm_x, 1.12, -1, "happy", Pose(lean=0, la=14, le=70, ra=6, re=76), 2 * wave(t, 0.35)))
-    c.focus = (640, 1120)
+    c.focus = (640, 1250)
 
 
 def think_idea(c, t, dur):
     ground(c)
     s = 1.05
     pose = Pose(lean=4, head=-10 + 4 * wave(t, 0.5), la=20, le=150, ra=-6, re=10)
-    j = draw_figure(c, standing(420, s, 1, "worried" if t < dur * 0.45 else "happy", pose, 0))
-    for k, (qx, qy) in enumerate([(620, 760), (760, 650), (860, 800)]):
-        question(c, qx, qy + 10 * wave(t, 0.8, k), 90, ACCENT if t < dur * 0.45 else GREY)
+    j = draw_figure(c, standing(370, s, 1, "worried" if t < dur * 0.45 else "happy", pose, 0))
+    for k, (qx, qy) in enumerate([(590, 1010), (720, 930), (830, 1040)]):
+        question(c, qx, qy + 8 * wave(t, 0.8, k), 74, ACCENT if t < dur * 0.45 else GREY)
     if t > dur * 0.45:
-        bulb(c, j["head"][0] + 30, j["head"][1] - 230, 1.0 * pop((t - dur * 0.45) / 0.5))
-    c.focus = (520, 1050)
+        bulb(c, j["head"][0] + 30, j["head"][1] - 175, 0.85 * pop((t - dur * 0.45) / 0.5))
+    c.focus = (520, 1200)
 
 
 def strong_lift(c, t, dur):
@@ -420,44 +431,44 @@ def strong_lift(c, t, dur):
         a = math.radians(-150 + k * 30)
         c.line([(j["head"][0] + math.cos(a) * 80, j["head"][1] + math.sin(a) * 80),
                 (j["head"][0] + math.cos(a) * 118, j["head"][1] + math.sin(a) * 118)], 6, ACCENT, 1.0)
-    c.focus = (540, 950)
+    c.focus = (540, 1100)
 
 
 def walk_away(c, t, dur):
-    horizon = 920
-    c.line([(40, horizon), (1040, horizon)], 6, INK, 2.0)
-    c.poly([(380, horizon), (700, horizon), (1060, GROUND_Y + 200), (20, GROUND_Y + 200)], fill=LIGHT, w=6)
-    c.line([(540, horizon), (540, GROUND_Y + 200)], 5, GREY, 1.0)
-    c.circle(780, horizon - 40, 70, w=7, fill=GOLD)
+    horizon = 1010
+    c.line([(0, horizon), (1080, horizon)], 6, INK, 2.0)
+    c.poly([(420, horizon), (660, horizon), (1020, GROUND_Y + 120), (60, GROUND_Y + 120)], fill=LIGHT, w=6)
+    c.line([(540, horizon), (540, GROUND_Y + 120)], 5, GREY, 1.0)
+    c.circle(740, horizon - 30, 58, w=7, fill=GOLD)
     u = ease(t / dur)
     s = lerp(1.05, 0.38, u)
-    x = lerp(300, 560, u)
-    base = lerp(GROUND_Y, horizon + 40, u)
+    x = lerp(330, 560, u)
+    base = lerp(GROUND_Y, horizon + 30, u)
     pose = walk_pose(t, 1.1 + 0.4 * u, 24, 4)
     fig = Figure(x, base - 194 * s - walk_bob(t) * s, s, 1, INK, "sad", pose, faceless=s < 0.55)
     draw_figure(c, fig)
-    c.focus = (540, 1000)
+    c.focus = (540, 1150)
 
 
 def lonely_crowd(c, t, dur):
     ground(c)
     for k in range(8):
-        x = 90 + k * 108
+        x = 190 + k * 100
         draw_figure(c, standing(x, 0.7, 1 if k % 2 else -1, "neutral",
                                 Pose(la=8 + 4 * wave(t, 0.5, k), ra=-6), 2 * wave(t, 0.6, k),
                                 color=GREY, faceless=True))
-    c.circle(560, 1210, 250, w=5, color=ACCENT, fill=None)
-    draw_figure(c, standing(560, 1.15, 1, "sad", replace(STAND, lean=6, head=12 + 2 * wave(t, 0.3)), 0))
-    c.focus = (560, 1150)
+    c.circle(570, 1230, 230, w=5, color=ACCENT, fill=None)
+    draw_figure(c, standing(570, 1.15, 1, "sad", replace(STAND, lean=6, head=12 + 2 * wave(t, 0.3)), 0))
+    c.focus = (560, 1250)
 
 
 def mountain_climb(c, t, dur):
-    sun(c, 840, 560, 54, t)
-    mountain(c, 560, GROUND_Y, 1000, 820)
-    mountain(c, 220, GROUND_Y, 520, 420)
+    sun(c, 790, 930, 44, t)
+    mountain(c, 570, GROUND_Y, 780, 650)
+    mountain(c, 250, GROUND_Y, 400, 320)
     ground(c)
-    path = [(190, GROUND_Y - 30), (470, GROUND_Y - 190), (330, GROUND_Y - 360), (620, GROUND_Y - 520),
-            (500, GROUND_Y - 640), (560, GROUND_Y - 800)]
+    path = [(230, GROUND_Y - 30), (470, GROUND_Y - 140), (380, GROUND_Y - 290), (590, GROUND_Y - 410),
+            (500, GROUND_Y - 520), (570, GROUND_Y - 640)]
     c.line(path, 5, GREY, 1.0)
     u = clamp(ease(t / (dur * 0.9)))
     seg = u * (len(path) - 1)
@@ -465,10 +476,10 @@ def mountain_climb(c, t, dur):
     p0, p1 = path[i], path[i + 1]
     x, y = lerp(p0[0], p1[0], seg - i), lerp(p0[1], p1[1], seg - i)
     fx = 1 if p1[0] >= p0[0] else -1
-    draw_figure(c, Figure(x, y - 50, 0.42, fx, INK, "happy", walk_pose(t, 1.2, 22, 8)))
+    draw_figure(c, Figure(x, y - 70, 0.5, fx, INK, "happy", walk_pose(t, 1.2, 22, 8)))
     if u > 0.97:
-        c.line([(560, GROUND_Y - 800), (560, GROUND_Y - 900)], 6, INK, 0.5)
-        c.poly([(560, GROUND_Y - 900), (640, GROUND_Y - 872), (560, GROUND_Y - 846)], fill=ACCENT, w=5)
+        c.line([(570, GROUND_Y - 640), (570, GROUND_Y - 730)], 6, INK, 0.5)
+        c.poly([(570, GROUND_Y - 730), (640, GROUND_Y - 706), (570, GROUND_Y - 682)], fill=ACCENT, w=5)
     c.focus = (x, y)
 
 
@@ -479,25 +490,22 @@ def puppet_strings(c, t, dur):
     pose = Pose(lean=sway * 0.5, head=sway, la=40 + 16 * wave(t, 0.7), le=20, ra=30 + 16 * wave(t, 0.7, 2), re=20,
                 ll=6 * wave(t, 0.7), lk=10, rl=-6 * wave(t, 0.7), rk=6)
     j = draw_figure(c, standing(540, s, 1, "neutral", pose, 0))
-    bar_y = 470
-    c.line([(380, bar_y), (700, bar_y)], 14, INK, 1.0)
-    c.line([(540, bar_y - 90), (540, bar_y)], 10, INK, 1.0)
-    c.circle(540, bar_y - 130, 40, w=8, fill=(238, 200, 180))
-    for key, bx in (("head", 540), ("lhand", 390), ("rhand", 690), ("lknee", 440), ("rknee", 640)):
+    bar_y = 640     # above the visible stage: the strings run off the top of the frame
+    for key, bx in (("head", 540), ("lhand", 400), ("rhand", 680), ("lknee", 450), ("rknee", 630)):
         c.line([(bx, bar_y), (j[key][0], j[key][1] - (50 if key == "head" else 0))], 3, GREY, 0.8)
-    c.focus = (540, 1000)
+    c.focus = (540, 1150)
 
 
 def mirror_self(c, t, dur):
     ground(c)
-    c.rect(130, 1000, 300, 540, fill=SKY, w=10)
-    c.rect(150, 1020, 260, 500, fill=(228, 238, 246), w=0)
+    c.rect(180, 900, 250, 630, fill=SKY, w=10)
+    c.rect(198, 918, 214, 594, fill=(228, 238, 246), w=0)
     s = 1.0
-    draw_figure(c, standing(250, s * 0.88, 1, "worried", replace(STAND, la=8), 0, color=BLUE))
-    draw_figure(c, standing(740, s, -1, "worried", replace(STAND, la=8, head=6 * wave(t, 0.5)), 0))
+    draw_figure(c, standing(305, s * 0.88, 1, "worried", replace(STAND, la=8), 0, color=BLUE))
+    draw_figure(c, standing(700, s, -1, "worried", replace(STAND, la=8, head=6 * wave(t, 0.5)), 0))
     for k in range(3):
-        question(c, 880 + 30 * k, 640 - 60 * k + 8 * wave(t, 0.7, k), 70, ACCENT)
-    c.focus = (540, 1150)
+        question(c, 790 + 26 * k, 1010 - 40 * k + 8 * wave(t, 0.7, k), 60, ACCENT)
+    c.focus = (540, 1250)
 
 
 SCENES = {

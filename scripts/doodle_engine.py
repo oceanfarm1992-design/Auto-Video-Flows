@@ -14,10 +14,11 @@ library. Scenes live in doodle_scenes.py; this module is the toolbox:
                 expressions) that scenes pose and animate frame by frame.
   render_clip   run a scene function over time and encode it to an mp4.
 
-Layout rule (matches assemble_video.py): the hook title sits at ~13% height for
-the first 4 s, captions are centre-screen, the CTA at ~87%. So scenes keep the
-figure on the ground line in the lower band (GROUND_Y) and use the band above
-the captions (y ~ 420-880) for props, sky, bubbles.
+Layout (matches assemble_video.py and generate_captions.py): the hook title card sits
+at ~13% height for the first 4 s, karaoke captions at ~77% height (below the ground
+line, on clear paper), CTA at ~87%. Scenes are drawn in a DESIGN coordinate system
+(ground at GROUND_Y) that Canvas magnifies by VIEW_K so the figure fills the screen:
+keep props inside the visible design region x 140-940, y 830-1540.
 
 Manual preview:
     python scripts/doodle_engine.py --sheet build/doodle_sheet.png
@@ -40,7 +41,11 @@ from PIL import Image, ImageChops, ImageDraw, ImageFont
 W, H, SS = 1080, 1920, 2          # output size, supersample factor for anti-aliasing
 ANIM_FPS = 12                     # drawn frames per second
 OUT_FPS = 30
-GROUND_Y = 1540
+GROUND_Y = 1540                   # DESIGN ground line; scenes are drawn in this coordinate system
+CX = W / 2
+VIEW_K = 1.35                     # the design stage is magnified by this when drawn into the frame
+VIEW_GROUND = 1290                # frame y that the design ground line lands on
+# Visible design region: x 140-940, y ~830-1540 (a 800 x 710 stage). Props must stay inside it.
 
 INK = (30, 30, 34)
 ACCENT = (222, 70, 48)
@@ -108,7 +113,7 @@ def paper_texture() -> Image.Image:
         blotch = np.asarray(low_img, dtype=np.float32) / 255.0
         grain = rng.normal(0.0, 0.006, (H, W)).astype(np.float32)
         tone = np.clip((0.955 + 0.045 * blotch + grain) * 255.0, 0, 255).astype(np.uint8)
-        _texture = Image.fromarray(np.stack([tone] * 3, axis=-1), "RGB")
+        _texture = Image.fromarray(np.stack([tone] * 3, axis=-1))
     return _texture
 
 
@@ -121,12 +126,23 @@ class Canvas:
         rng = random.Random(seed)
         self.ph1 = rng.uniform(0, 6.28)
         self.ph2 = rng.uniform(0, 6.28)
-        self.focus = (W / 2, H * 0.62)    # zoom centre, scenes may move it
+        self._focus = (W / 2, 1000.0)     # zoom centre in FRAME pixels
+
+    @property
+    def focus(self):
+        return self._focus
+
+    @focus.setter
+    def focus(self, design_xy):
+        """Scenes give the zoom centre in design coordinates."""
+        px, py = self._sp(design_xy)
+        self._focus = (px / SS, py / SS)
 
     # -- helpers
     @staticmethod
     def _sp(p):
-        return (p[0] * SS, p[1] * SS)
+        """Design coordinates -> supersampled frame pixels (stage magnification)."""
+        return ((CX + (p[0] - CX) * VIEW_K) * SS, (VIEW_GROUND + (p[1] - GROUND_Y) * VIEW_K) * SS)
 
     def _boil(self, pts, amp):
         return [(x + amp * math.sin(self.ph1 + i * 1.9 + y * 0.021),
@@ -143,7 +159,7 @@ class Canvas:
         return out
 
     def _stroke(self, sp, width, color):
-        width = max(1, int(width * SS))
+        width = max(1, int(width * VIEW_K * SS))
         self.d.line(sp, fill=color, width=width, joint="curve")
         r = width / 2
         for x, y in (sp[0], sp[-1]):
@@ -168,7 +184,9 @@ class Canvas:
             self._stroke(sp + [sp[0]], w, color)
 
     def dot(self, x, y, r, color=INK):
-        self.d.ellipse(((x - r) * SS, (y - r) * SS, (x + r) * SS, (y + r) * SS), fill=color)
+        px, py = self._sp((x, y))
+        rr = r * VIEW_K * SS
+        self.d.ellipse((px - rr, py - rr, px + rr, py + rr), fill=color)
 
     def arc(self, cx, cy, r, a0, a1, w=9, color=INK, amp=1.5):
         n = max(8, int(abs(a1 - a0) / 6))
@@ -186,8 +204,19 @@ class Canvas:
     def rect(self, x, y, w_, h_, fill=None, w=8, color=INK, amp=1.8):
         self.poly([(x, y), (x + w_, y), (x + w_, y + h_), (x, y + h_)], fill, w, color, amp)
 
-    def text(self, x, y, s, size=60, color=INK, anchor="mm"):
-        self.d.text((x * SS, y * SS), s, font=font(size), fill=color, anchor=anchor)
+    def text(self, x, y, s, size=60, color=INK, anchor="mm", angle=0.0):
+        px, py = self._sp((x, y))
+        fnt = font(int(size * VIEW_K))
+        if not angle:
+            self.d.text((px, py), s, font=fnt, fill=color, anchor=anchor)
+            return
+        # rotated hand-lettered text: draw on a transparent layer, rotate, paste
+        box = self.d.textbbox((0, 0), s, font=fnt, anchor="lt")
+        pad = 20 * SS
+        layer = Image.new("RGBA", (box[2] + 2 * pad, box[3] + 2 * pad), (0, 0, 0, 0))
+        ImageDraw.Draw(layer).text((pad, pad), s, font=fnt, fill=color + (255,), anchor="lt")
+        layer = layer.rotate(angle, expand=True, resample=Image.BICUBIC)
+        self.img.paste(layer, (int(px - layer.width / 2), int(py - layer.height / 2)), layer)
 
     # -- output
     def to_frame(self, zoom: float = 1.0) -> Image.Image:

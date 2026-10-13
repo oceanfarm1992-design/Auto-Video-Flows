@@ -173,12 +173,18 @@ def generate_doodle(segment: dict, dest: str, duration: float, idx: int, used_sc
     network and no stock library. Uses the scene id the script writer picked, else a
     keyword match on the narration; never repeats a scene within one video."""
     from doodle_engine import render_clip  # local import: pulls in Pillow/numpy
-    from doodle_scenes import SCENE_FUNCS, pick_scene
+    from doodle_scenes import SCENE_FUNCS, draw_label, pick_scene
     scene_id = segment.get("scene")
     if scene_id not in SCENE_FUNCS or scene_id in used_scenes:
         scene_id = pick_scene(segment.get("text", ""), used_scenes)
     used_scenes.append(scene_id)
-    render_clip(SCENE_FUNCS[scene_id], duration + 1.0, dest, seed=idx + 1)
+    base, label = SCENE_FUNCS[scene_id], str(segment.get("label", "") or "")
+
+    def scene(canvas, t, dur):
+        base(canvas, t, dur)
+        draw_label(canvas, label, t, dur)
+
+    render_clip(scene, duration + 1.0, dest, seed=idx + 1)
     return {"source": "doodle", "query": scene_id, "type": "video",
             "resolution": "1080x1920", "license": "Generated doodle animation"}
 
@@ -300,13 +306,14 @@ def fetch_segment(idx: int, segment: dict, duration: float,
 # ── Duration estimation ───────────────────────────────────────────────────────
 
 def estimate_durations(segments: list, total_words: int,
-                       wps: float, audio_duration: float | None) -> list[float]:
+                       wps: float, audio_duration: float | None,
+                       min_clip: float = MIN_CLIP_SECONDS) -> list[float]:
     """Proportionally distribute audio_duration (or estimate) across segments."""
     if audio_duration is None:
         audio_duration = total_words / wps
     seg_words = [len(s.get("text", "").split()) for s in segments]
     total_seg_words = sum(seg_words) or 1
-    durations = [max(MIN_CLIP_SECONDS, audio_duration * (w / total_seg_words))
+    durations = [max(min_clip, audio_duration * (w / total_seg_words))
                  for w in seg_words]
     return durations
 
@@ -318,6 +325,8 @@ def main():
     ap.add_argument("--script", default="build/script.json")
     ap.add_argument("--config", default="config/sources.json")
     ap.add_argument("--out", default="build")
+    ap.add_argument("--min-clip", type=float, default=MIN_CLIP_SECONDS,
+                    help="Shortest clip to fetch; lower it for many-beat scripts (default %(default)s).")
     ap.add_argument("--force-source", default=None,
                     choices=["pexels_video", "pixabay_video",
                              "pexels_photo", "pixabay_photo", "animate", "doodle"])
@@ -351,7 +360,7 @@ def main():
         except Exception:
             pass
 
-    durations = estimate_durations(segments, total_words, wps, audio_duration)
+    durations = estimate_durations(segments, total_words, wps, audio_duration, args.min_clip)
     field = script.get("field", "")
     name = script.get("author", "")
 

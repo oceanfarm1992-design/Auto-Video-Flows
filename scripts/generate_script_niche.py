@@ -114,6 +114,7 @@ def schema_example(n_segments: int) -> str:
     beat = {
         "text": "8-12 words, the exact words spoken for this beat",
         "scene": "ONE id from the SCENE LIST that illustrates this beat",
+        "label": "optional 1-3 word hand-lettered on-screen key word for this beat (e.g. ALONE, NINE YEARS, FINE), or an empty string",
         "footage_query": "3-6 word generic stock search for this beat (an action or setting, never a named person)",
         "media_type": "video",
     }
@@ -242,6 +243,7 @@ def build_segments(data: dict, cfg: dict) -> list[dict]:
         segments.append({
             "text": text,
             "scene": scene,
+            "label": str(beat.get("label", "") or "")[:28],
             "footage_query": beat.get("footage_query") or f"{cfg['field']} {data.get('footage_query', 'cinematic')}".strip(),
             "media_type": "video",
         })

@@ -93,7 +93,7 @@ jobs:
           if [ -n "$FORCE_SOURCE" ]; then
             ARG="--force-source $FORCE_SOURCE"
           fi
-          python scripts/fetch_footage_multi.py $ARG
+          python scripts/fetch_footage_multi.py --min-clip 2.5 $ARG
 
       - name: Generate background music
         run: python scripts/generate_music.py

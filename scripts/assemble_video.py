@@ -112,7 +112,8 @@ def prepare_clip_filter(idx: int, clip: dict) -> str:
 
 
 def build_filter_complex(clips: list, hook: str, cta: str,
-                         captions_path: str, total_duration: float) -> str:
+                         captions_path: str, total_duration: float,
+                         crossfade: float = CROSSFADE_S) -> str:
     parts = []
     n = len(clips)
 
@@ -130,10 +131,10 @@ def build_filter_complex(clips: list, hook: str, cta: str,
             a   = f"[xf{i-1}]" if i > 0 else "[pre0]"
             b   = f"[pre{i+1}]"
             out = "[vconcat]" if i == n - 2 else f"[xf{i}]"
-            offset += clips[i]["duration"] - CROSSFADE_S
+            offset += clips[i]["duration"] - crossfade
             transition = TRANSITIONS[i % len(TRANSITIONS)]
             parts.append(
-                f"{a}{b}xfade=transition={transition}:duration={CROSSFADE_S}:"
+                f"{a}{b}xfade=transition={transition}:duration={crossfade}:"
                 f"offset={offset:.3f}{out}"
             )
 
@@ -157,7 +158,10 @@ def build_filter_complex(clips: list, hook: str, cta: str,
         "OutlineColour=&H00000000\\,BorderStyle=1\\,Outline=2\\,Shadow=1\\,"
         "Alignment=2\\,MarginV=144"
     )
-    parts.append(f"[v1]subtitles='{subs}':force_style={caption_style}[v2]")
+    if subs.lower().endswith(".ass"):
+        parts.append(f"[v1]subtitles='{subs}'[v2]")   # style lives inside the ASS file
+    else:
+        parts.append(f"[v1]subtitles='{subs}':force_style={caption_style}[v2]")
 
     # 5. CTA end-card (bottom, last 4 s)
     cta_e  = drawtext_escape(cta)
@@ -224,17 +228,21 @@ def main():
     clips = load_manifest(args.manifest, args.footage)
     print(f"[assemble_video] {len(clips)} clip(s)/photo(s)")
 
-    # Scale clip durations so they sum to total_dur
+    # Each crossfade overlaps two clips, so the clips must add up to total_dur PLUS the
+    # overlaps or the picture ends early (up to 6 s short with ten quick cuts).
+    crossfade = float(cfg.get("crossfade_s", CROSSFADE_S))
+    target_sum = total_dur + crossfade * max(0, len(clips) - 1)
+
     raw_sum = sum(c["duration"] for c in clips)
     if raw_sum > 0:
-        scale = total_dur / raw_sum
+        scale = target_sum / raw_sum
         for c in clips:
             c["duration"] = max(MIN_CLIP := 2.0, c["duration"] * scale)
 
     # Re-scale once more so sum matches exactly
     actual_sum = sum(c["duration"] for c in clips)
     if actual_sum > 0:
-        factor = total_dur / actual_sum
+        factor = target_sum / actual_sum
         for c in clips:
             c["duration"] *= factor
 
@@ -259,7 +267,12 @@ def main():
         cmd += ["-stream_loop", "-1", "-i", music_path]
 
     n = len(clips)
-    fc_video = build_filter_complex(clips, hook, cta, args.captions, total_dur)
+    captions = args.captions
+    ass_candidate = os.path.splitext(captions)[0] + ".ass"
+    if os.path.exists(ass_candidate):
+        captions = ass_candidate
+        print(f"[assemble_video] karaoke captions: {captions}")
+    fc_video = build_filter_complex(clips, hook, cta, captions, total_dur, crossfade)
     fc_audio = build_audio_filter(n, bool(music_path), total_dur, args.music_volume)
     filter_complex = fc_video + ";" + fc_audio
 
