@@ -17,6 +17,10 @@ on:
       topic_index:
         type: string
         default: ""
+      force_source:
+        description: "Force one footage source for every segment (e.g. doodle); blank = stock with fallbacks"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -83,7 +87,13 @@ jobs:
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
-        run: python scripts/fetch_footage_multi.py
+          FORCE_SOURCE: ${{ inputs.force_source }}
+        run: |
+          ARG=""
+          if [ -n "$FORCE_SOURCE" ]; then
+            ARG="--force-source $FORCE_SOURCE"
+          fi
+          python scripts/fetch_footage_multi.py --min-clip 2.5 $ARG
 
       - name: Generate background music
         run: python scripts/generate_music.py

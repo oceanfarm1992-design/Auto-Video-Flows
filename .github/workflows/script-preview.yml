@@ -14,6 +14,12 @@ on:
       count:
         description: "How many scripts to generate"
         default: "3"
+      model:
+        description: "Writer model (gpt-4o, gpt-4.1, gpt-5-chat-latest, gpt-5)"
+        default: "gpt-4o"
+      topic_index:
+        description: "First topic index to use (blank = random)"
+        default: ""
 
 permissions:
   contents: read
@@ -27,24 +33,40 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install openai requests Pillow numpy
+      - name: List usable chat models
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python - <<PY
+          from openai import OpenAI
+          ids = sorted(m.id for m in OpenAI().models.list().data)
+          print("MODELS:", [i for i in ids if i.startswith(("gpt-4", "gpt-5", "o1", "o3", "o4")) and not any(x in i for x in ("audio", "realtime", "transcribe", "tts", "image", "search", "instruct", "embedding"))])
+          PY
       - name: Generate and print scripts
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           NICHE: ${{ inputs.niche }}
           COUNT: ${{ inputs.count }}
+          MODEL: ${{ inputs.model }}
+          TOPIC_INDEX: ${{ inputs.topic_index }}
         run: |
           case "$COUNT" in *[!0-9]*|"") echo "count must be a number"; exit 1;; esac
           for i in $(seq 1 "$COUNT"); do
             echo "=================== script $i ==================="
-            python scripts/generate_script_niche.py --niche "config/niches/$NICHE.json" --out "build/p$i" >/dev/null
+            TI=""
+            if [ -n "$TOPIC_INDEX" ]; then TI="--topic-index $((TOPIC_INDEX + i - 1))"; fi
+            python scripts/generate_script_niche.py --niche "config/niches/$NICHE.json" --model "$MODEL" $TI --out "build/p$i" | grep -E "draft|rebuild|using the best"
             python - <<PY
           import json
           d = json.load(open("build/p$i/script.json"))
+          print("MODEL : $MODEL")
           print("TOPIC :", d["topic"])
+          print("OPTS  :", d.get("hook_options"))
           print("HOOK  :", d["hook"])
           print("WORDS :", len(d["narration"].split()))
           print("TEXT  :", d["narration"])
-          print("SEGS  :", [(s.get("scene"), len(s["text"].split())) for s in d["segments"]])
+          for k, s in enumerate(d["segments"]):
+            print(f"  beat {k+1:2d} [{s.get('scene')}] {s['text']}")
           print("YT    :", d.get("seo_title"))
           PY
           done

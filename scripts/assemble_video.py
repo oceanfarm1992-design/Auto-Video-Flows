@@ -69,6 +69,24 @@ def drawtext_escape(text: str) -> str:
                 .replace("%", "\\%"))
 
 
+def balanced_wrap(text: str, max_width: int = 20, max_lines: int = 3) -> list[str]:
+    """Split into evenly sized lines (no one-word widows) of about max_width characters."""
+    words = text.split()
+    if not words:
+        return [""]
+    n = min(max_lines, max(1, -(-len(text) // max_width)))
+    target = len(text) / n
+    lines, cur = [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > target * 1.15 and len(lines) < n - 1:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    lines.append(cur)
+    return lines
+
+
 def build_audio_filter(n_video_inputs: int, has_music: bool,
                        duration: float, music_vol: float) -> str:
     voice_idx = n_video_inputs  # audio is the input after all video clips
@@ -112,7 +130,8 @@ def prepare_clip_filter(idx: int, clip: dict) -> str:
 
 
 def build_filter_complex(clips: list, hook: str, cta: str,
-                         captions_path: str, total_duration: float) -> str:
+                         captions_path: str, total_duration: float,
+                         crossfade: float = CROSSFADE_S) -> str:
     parts = []
     n = len(clips)
 
@@ -130,21 +149,26 @@ def build_filter_complex(clips: list, hook: str, cta: str,
             a   = f"[xf{i-1}]" if i > 0 else "[pre0]"
             b   = f"[pre{i+1}]"
             out = "[vconcat]" if i == n - 2 else f"[xf{i}]"
-            offset += clips[i]["duration"] - CROSSFADE_S
+            offset += clips[i]["duration"] - crossfade
             transition = TRANSITIONS[i % len(TRANSITIONS)]
             parts.append(
-                f"{a}{b}xfade=transition={transition}:duration={CROSSFADE_S}:"
+                f"{a}{b}xfade=transition={transition}:duration={crossfade}:"
                 f"offset={offset:.3f}{out}"
             )
 
-    # 3. Hook title card (top, first 4 s)
-    hook_e = drawtext_escape(hook)
-    parts.append(
-        f"[vconcat]drawtext=fontfile={FONT_BOLD}:text='{hook_e}':"
-        "fontcolor=white:fontsize=52:line_spacing=8:"
-        "box=1:boxcolor=black@0.55:boxborderw=22:"
-        "x=(w-text_w)/2:y=h*0.13:enable='between(t,0,4.0)'[v1]"
-    )
+    # 3. Hook title card (top, first 4 s): balanced into at most three lines, each line centred
+    # in its own solid accent box so it never runs off screen and pops on paper and footage.
+    hook_prev = "[vconcat]"
+    for li, line in enumerate(balanced_wrap(hook, 20)):
+        out = f"[hk{li}]"
+        parts.append(
+            f"{hook_prev}drawtext=fontfile={FONT_BOLD}:text='{drawtext_escape(line)}':"
+            "fontcolor=white:fontsize=62:"
+            "box=1:boxcolor=0xDE4630@0.96:boxborderw=20:"
+            f"x=(w-text_w)/2:y=h*0.10+{li * 112}:enable='between(t,0,4.0)'{out}"
+        )
+        hook_prev = out
+    parts.append(f"{hook_prev}copy[v1]")
 
     # 4. Burned-in subtitles (word-level SRT)
     subs = captions_path.replace("\\", "/")
@@ -157,7 +181,10 @@ def build_filter_complex(clips: list, hook: str, cta: str,
         "OutlineColour=&H00000000\\,BorderStyle=1\\,Outline=2\\,Shadow=1\\,"
         "Alignment=2\\,MarginV=144"
     )
-    parts.append(f"[v1]subtitles='{subs}':force_style={caption_style}[v2]")
+    if subs.lower().endswith(".ass"):
+        parts.append(f"[v1]subtitles='{subs}'[v2]")   # style lives inside the ASS file
+    else:
+        parts.append(f"[v1]subtitles='{subs}':force_style={caption_style}[v2]")
 
     # 5. CTA end-card (bottom, last 4 s)
     cta_e  = drawtext_escape(cta)
@@ -224,17 +251,21 @@ def main():
     clips = load_manifest(args.manifest, args.footage)
     print(f"[assemble_video] {len(clips)} clip(s)/photo(s)")
 
-    # Scale clip durations so they sum to total_dur
+    # Each crossfade overlaps two clips, so the clips must add up to total_dur PLUS the
+    # overlaps or the picture ends early (up to 6 s short with ten quick cuts).
+    crossfade = float(cfg.get("crossfade_s", CROSSFADE_S))
+    target_sum = total_dur + crossfade * max(0, len(clips) - 1)
+
     raw_sum = sum(c["duration"] for c in clips)
     if raw_sum > 0:
-        scale = total_dur / raw_sum
+        scale = target_sum / raw_sum
         for c in clips:
             c["duration"] = max(MIN_CLIP := 2.0, c["duration"] * scale)
 
     # Re-scale once more so sum matches exactly
     actual_sum = sum(c["duration"] for c in clips)
     if actual_sum > 0:
-        factor = total_dur / actual_sum
+        factor = target_sum / actual_sum
         for c in clips:
             c["duration"] *= factor
 
@@ -259,7 +290,12 @@ def main():
         cmd += ["-stream_loop", "-1", "-i", music_path]
 
     n = len(clips)
-    fc_video = build_filter_complex(clips, hook, cta, args.captions, total_dur)
+    captions = args.captions
+    ass_candidate = os.path.splitext(captions)[0] + ".ass"
+    if os.path.exists(ass_candidate):
+        captions = ass_candidate
+        print(f"[assemble_video] karaoke captions: {captions}")
+    fc_video = build_filter_complex(clips, hook, cta, captions, total_dur, crossfade)
     fc_audio = build_audio_filter(n, bool(music_path), total_dur, args.music_volume)
     filter_complex = fc_video + ";" + fc_audio
 

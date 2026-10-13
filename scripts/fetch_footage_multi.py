@@ -15,6 +15,7 @@ Outputs:
 Usage:
     python scripts/fetch_footage_multi.py
     python scripts/fetch_footage_multi.py --force-source animate
+    python scripts/fetch_footage_multi.py --force-source doodle   # stick-man / doodle scenes
 """
 import argparse
 import json
@@ -36,6 +37,7 @@ PIXABAY_PHOTO = "https://pixabay.com/api/"
 
 WORDS_PER_SECOND = 2.6   # fallback if not in config
 MIN_CLIP_SECONDS  = 5.0  # minimum footage duration to fetch
+HOOK_CARD_SECONDS = 4.0  # assemble_video.py shows the hook card for this long
 
 
 def _download(url: str, dest: str, headers: dict = None):
@@ -167,6 +169,29 @@ def generate_anim(query: str, dest: str, duration: float,
             "resolution": f"{w}x{h}", "license": "Generated animation"}
 
 
+def generate_doodle(segment: dict, dest: str, duration: float, idx: int, used_scenes: list,
+                    start_s: float = 0.0) -> dict:
+    """Render a doodle / stick-man scene for this segment (doodle_engine.py). Needs no
+    network and no stock library. Uses the scene id the script writer picked, else a
+    keyword match on the narration; never repeats a scene within one video."""
+    from doodle_engine import render_clip  # local import: pulls in Pillow/numpy
+    from doodle_scenes import SCENE_FUNCS, draw_label, pick_scene
+    scene_id = segment.get("scene")
+    if scene_id not in SCENE_FUNCS or scene_id in used_scenes:
+        scene_id = pick_scene(segment.get("text", ""), used_scenes)
+    used_scenes.append(scene_id)
+    base, label = SCENE_FUNCS[scene_id], str(segment.get("label", "") or "")
+
+    def scene(canvas, t, dur):
+        base(canvas, t, dur)
+        if start_s + t > HOOK_CARD_SECONDS + 0.3:      # the hook card owns the top of the screen until then
+            draw_label(canvas, label, t, dur)
+
+    render_clip(scene, duration + 1.0, dest, seed=idx + 1)
+    return {"source": "doodle", "query": scene_id, "type": "video",
+            "resolution": "1080x1920", "license": "Generated doodle animation"}
+
+
 # ── Per-segment fetcher ───────────────────────────────────────────────────────
 
 # Old prompt versions asked GPT for a footage_query and handed it these exact
@@ -225,7 +250,9 @@ def _clean_query(raw: str, field: str = "", name: str = "") -> str:
 
 def fetch_segment(idx: int, segment: dict, duration: float,
                   out_dir: str, cfg: dict, force_source: str | None,
-                  field: str = "", name: str = "") -> dict:
+                  field: str = "", name: str = "",
+                  used_scenes: list | None = None, start_s: float = 0.0) -> dict:
+    used_scenes = used_scenes if used_scenes is not None else []
     query = _clean_query(segment.get("footage_query", "cinematic nature"), field, name)
     want_photo = segment.get("media_type") == "photo" and not force_source
 
@@ -256,6 +283,9 @@ def fetch_segment(idx: int, segment: dict, duration: float,
                 info = pixabay_photo(query, photo_dest)
                 if info:
                     dest = photo_dest
+            elif source == "doodle":
+                info = generate_doodle(segment, vid_dest, duration, idx, used_scenes, start_s)
+                dest = vid_dest
             elif source == "animate":
                 seed = sum(ord(c) for c in query) + idx
                 info = generate_anim(query, vid_dest, duration, cfg, seed)
@@ -279,13 +309,14 @@ def fetch_segment(idx: int, segment: dict, duration: float,
 # ── Duration estimation ───────────────────────────────────────────────────────
 
 def estimate_durations(segments: list, total_words: int,
-                       wps: float, audio_duration: float | None) -> list[float]:
+                       wps: float, audio_duration: float | None,
+                       min_clip: float = MIN_CLIP_SECONDS) -> list[float]:
     """Proportionally distribute audio_duration (or estimate) across segments."""
     if audio_duration is None:
         audio_duration = total_words / wps
     seg_words = [len(s.get("text", "").split()) for s in segments]
     total_seg_words = sum(seg_words) or 1
-    durations = [max(MIN_CLIP_SECONDS, audio_duration * (w / total_seg_words))
+    durations = [max(min_clip, audio_duration * (w / total_seg_words))
                  for w in seg_words]
     return durations
 
@@ -297,9 +328,11 @@ def main():
     ap.add_argument("--script", default="build/script.json")
     ap.add_argument("--config", default="config/sources.json")
     ap.add_argument("--out", default="build")
+    ap.add_argument("--min-clip", type=float, default=MIN_CLIP_SECONDS,
+                    help="Shortest clip to fetch; lower it for many-beat scripts (default %(default)s).")
     ap.add_argument("--force-source", default=None,
                     choices=["pexels_video", "pixabay_video",
-                             "pexels_photo", "pixabay_photo", "animate"])
+                             "pexels_photo", "pixabay_photo", "animate", "doodle"])
     args = ap.parse_args()
 
     with open(args.script, encoding="utf-8") as f:
@@ -330,14 +363,17 @@ def main():
         except Exception:
             pass
 
-    durations = estimate_durations(segments, total_words, wps, audio_duration)
+    durations = estimate_durations(segments, total_words, wps, audio_duration, args.min_clip)
     field = script.get("field", "")
     name = script.get("author", "")
 
     os.makedirs(args.out, exist_ok=True)
     manifest = []
+    used_scenes: list = []
+    start_s = 0.0
     for i, (seg, dur) in enumerate(zip(segments, durations)):
-        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name)
+        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name, used_scenes, start_s)
+        start_s += dur
         print(f"[fetch_footage_multi] segment {i+1}/{len(segments)}: "
               f"'{seg.get('footage_query', '')}' -> query='{info['query']}' ~{dur:.1f}s")
         manifest.append(info)

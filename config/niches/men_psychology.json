@@ -11,6 +11,7 @@
 
   "video": {
     "cta_text": "Follow for more",
+    "crossfade_s": 0.2,
     "min_seconds": 30,
     "max_seconds": 90
   },
@@ -19,6 +20,19 @@
     "men psychology", "why men", "mens mental health", "understanding men",
     "masculinity", "male mindset", "relationship advice", "emotional strength",
     "self improvement", "life lessons", "silent strength", "provider mindset"
+  ],
+
+  "examples": [
+      {
+          "topic": "Why men rarely buy things for themselves",
+          "title": "NINE YEARS WITHOUT A NEW COAT",
+          "narration": "Daniel hasn't bought himself a coat in nine years. Picture him. Forty-one, two kids, a job he never mentions. Every payday, the money leaves in the same order. Rent. School shoes. Her birthday. His name is always last. Not because he doesn't want things. Because somewhere along the way, spending on himself started to feel like stealing from them. That's the quiet trap. When a man's worth is tied to what he provides, every purchase for himself feels like a loss. So he waits. Send this to the Daniel in your life."
+      },
+      {
+          "topic": "Why men go silent when they are hurting",
+          "title": "WATCH WHAT A HURTING MAN DOES",
+          "narration": "Watch what a man does when he's hurting. Nothing. No call, no text, no scene. People call that cold. It isn't. Picture Marcus on the day he lost his job. He came home, kissed his wife, checked the kids' homework. Then he sat in the car for an hour. Here's why. Many men learned early that pain is something you solve alone, quietly, before anyone sees it. Silence isn't the absence of feeling. It's the feeling with the volume turned down. So if he goes quiet, skip the questions. Just sit beside him."
+      }
   ],
 
   "topics": [
