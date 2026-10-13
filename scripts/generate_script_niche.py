@@ -50,6 +50,11 @@ except ImportError:  # Pillow/numpy missing: segments just get no scene id
     def pick_scene(text, used=None):
         return ""
 
+# One fresh name per script so the character is never "Marcus" again and again.
+NAMES = ["Omar", "Teodor", "Kwame", "Rafael", "Henrik", "Dev", "Luca", "Idris", "Mateo", "Anton",
+         "Jamal", "Nikhil", "Callum", "Tariq", "Emil", "Santiago", "Yusuf", "Bruno", "Arjun", "Felix",
+         "Elena", "Priya", "Noor", "Camila", "Ingrid", "Amara", "Leila", "Sofia", "Mei", "Tessa"]
+
 RECENT_WINDOW = 15
 N_SEGMENTS = 10                  # one new picture roughly every four seconds
 MIN_WORDS, MAX_WORDS = 80, 120   # what the lint asks for
@@ -69,7 +74,7 @@ SYSTEM_PROMPT = (
 
 STRUCTURE = """STORY STRUCTURE. The script is exactly 10 BEATS, each 8-12 words, one new picture per beat:
 - Beat 1 HOOK (12 words or fewer): the strongest of your hook_options; a specific, slightly surprising claim, or the middle of a moment, that makes someone stop scrolling and need the answer. Never start with "Picture", "Imagine", "Have you ever" or a restatement of the topic.
-- Beats 2-3 SCENE: one illustrative person (fresh first name, not Alex or Sam) in one concrete moment with a sensory detail. Make clear he is illustrative ("Take a man like Marcus").
+- Beats 2-3 SCENE: one illustrative person named {name}, in one concrete moment with a sensory detail. Make clear it is illustrative with a fresh opener ("Meet {name}.", "Say {name} is thirty-eight...", "{name} is on the train home..."). Never open with "Take a man like".
 - Beats 4-5 TENSION: what he does that looks strange or wrong. Hold the reason back for a beat.
 - Beats 6-7 REVEAL: the real reason, one clear idea, explained with a "because". No vague words like "mindset", "cycle" or "deeper reason" unless you explain them in plain words.
 - Beat 8 TWIST: flip how the viewer saw it. A reframe that lands emotionally.
@@ -132,7 +137,7 @@ def schema_example(n_segments: int) -> str:
     return json.dumps(obj, indent=2, ensure_ascii=False)
 
 
-def build_prompt(cfg: dict, topic: str, tiktok_keywords: list[str]) -> str:
+def build_prompt(cfg: dict, topic: str, tiktok_keywords: list[str], name: str = "Omar") -> str:
     seo_note = (
         "\n\nFor caption_tiktok/hashtags_tiktok, naturally weave in 2-3 of these high-search "
         f"terms where they genuinely fit (skip any that don't): {', '.join(tiktok_keywords)}."
@@ -153,7 +158,7 @@ def build_prompt(cfg: dict, topic: str, tiktok_keywords: list[str]) -> str:
 Tone: {cfg["tone"]}.
 Topic of this video: "{topic}"{seo_note}
 
-{STRUCTURE}
+{STRUCTURE.replace('{name}', name)}
 
 {STYLE}
 {example_block}{scene_block}
@@ -186,7 +191,7 @@ def beats_to_narration(data: dict) -> str:
 def generate(client: OpenAI, cfg: dict, topic: str, model: str, keywords: list[str]) -> dict:
     """Write, lint, and ask for a rewrite (up to three drafts) until the script has no
     filler, the right rhythm and length. Only a hopeless length is fatal."""
-    base = build_prompt(cfg, topic, keywords)
+    base = build_prompt(cfg, topic, keywords, random.choice(NAMES))
     feedback = ""
     best, best_issues = None, None
     for attempt in (1, 2, 3):
@@ -256,8 +261,8 @@ def normalise(data: dict, cfg: dict, topic: str) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--niche", required=True, help="Path to config/niches/<series>.json")
-    ap.add_argument("--model", default="gpt-4o",
-                    help="Writing quality is what keeps people watching; mini writes generic scripts.")
+    ap.add_argument("--model", default="gpt-4.1",
+                    help="Writing quality is what keeps people watching. Compared on real topics: gpt-4o-mini and 4o write generic lectures, gpt-5 is clipped and muddled, gpt-4.1 is the clearest story.")
     ap.add_argument("--topic-index", type=int, default=None)
     ap.add_argument("--out", default="build")
     args = ap.parse_args()

@@ -21,6 +21,7 @@ BANNED = [
     "understanding this", "in conclusion", "ultimately,", "let's dive", "delve", "tapestry",
     "it's a common tendency", "many men often", "foster", "embrace", "empower", "resonate",
     "deeper reason", "unspoken rule", "cautious hope", "badge of honor", "speak louder",
+    "take a man like", "take a woman like", "life lesson",
 ]
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
 
@@ -48,6 +49,8 @@ def lint_narration(text: str, min_words: int, max_words: int) -> list[str]:
         issues.append("filler phrases to remove: " + ", ".join(f"'{b}'" for b in found))
     if text.count("...") + text.count("…") > 2:
         issues.append("too many ellipses; use at most two")
+    if "#" in text or "@" in text:
+        issues.append("no hashtags or @-handles in the spoken script")
     if re.search(r"\d", text):
         issues.append("write every number as words (forty-one, nine years), no digits")
 
