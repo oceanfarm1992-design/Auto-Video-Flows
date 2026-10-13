@@ -37,6 +37,7 @@ PIXABAY_PHOTO = "https://pixabay.com/api/"
 
 WORDS_PER_SECOND = 2.6   # fallback if not in config
 MIN_CLIP_SECONDS  = 5.0  # minimum footage duration to fetch
+HOOK_CARD_SECONDS = 4.0  # assemble_video.py shows the hook card for this long
 
 
 def _download(url: str, dest: str, headers: dict = None):
@@ -168,7 +169,8 @@ def generate_anim(query: str, dest: str, duration: float,
             "resolution": f"{w}x{h}", "license": "Generated animation"}
 
 
-def generate_doodle(segment: dict, dest: str, duration: float, idx: int, used_scenes: list) -> dict:
+def generate_doodle(segment: dict, dest: str, duration: float, idx: int, used_scenes: list,
+                    start_s: float = 0.0) -> dict:
     """Render a doodle / stick-man scene for this segment (doodle_engine.py). Needs no
     network and no stock library. Uses the scene id the script writer picked, else a
     keyword match on the narration; never repeats a scene within one video."""
@@ -182,7 +184,8 @@ def generate_doodle(segment: dict, dest: str, duration: float, idx: int, used_sc
 
     def scene(canvas, t, dur):
         base(canvas, t, dur)
-        draw_label(canvas, label, t, dur)
+        if start_s + t > HOOK_CARD_SECONDS + 0.3:      # the hook card owns the top of the screen until then
+            draw_label(canvas, label, t, dur)
 
     render_clip(scene, duration + 1.0, dest, seed=idx + 1)
     return {"source": "doodle", "query": scene_id, "type": "video",
@@ -248,7 +251,7 @@ def _clean_query(raw: str, field: str = "", name: str = "") -> str:
 def fetch_segment(idx: int, segment: dict, duration: float,
                   out_dir: str, cfg: dict, force_source: str | None,
                   field: str = "", name: str = "",
-                  used_scenes: list | None = None) -> dict:
+                  used_scenes: list | None = None, start_s: float = 0.0) -> dict:
     used_scenes = used_scenes if used_scenes is not None else []
     query = _clean_query(segment.get("footage_query", "cinematic nature"), field, name)
     want_photo = segment.get("media_type") == "photo" and not force_source
@@ -281,7 +284,7 @@ def fetch_segment(idx: int, segment: dict, duration: float,
                 if info:
                     dest = photo_dest
             elif source == "doodle":
-                info = generate_doodle(segment, vid_dest, duration, idx, used_scenes)
+                info = generate_doodle(segment, vid_dest, duration, idx, used_scenes, start_s)
                 dest = vid_dest
             elif source == "animate":
                 seed = sum(ord(c) for c in query) + idx
@@ -367,8 +370,10 @@ def main():
     os.makedirs(args.out, exist_ok=True)
     manifest = []
     used_scenes: list = []
+    start_s = 0.0
     for i, (seg, dur) in enumerate(zip(segments, durations)):
-        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name, used_scenes)
+        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name, used_scenes, start_s)
+        start_s += dur
         print(f"[fetch_footage_multi] segment {i+1}/{len(segments)}: "
               f"'{seg.get('footage_query', '')}' -> query='{info['query']}' ~{dur:.1f}s")
         manifest.append(info)

@@ -19,7 +19,6 @@ import datetime
 import json
 import os
 import subprocess
-import textwrap
 import sys
 from pathlib import Path
 
@@ -68,6 +67,24 @@ def drawtext_escape(text: str) -> str:
                 .replace(":", "\\:")
                 .replace("'", "’")
                 .replace("%", "\\%"))
+
+
+def balanced_wrap(text: str, max_width: int = 20, max_lines: int = 3) -> list[str]:
+    """Split into evenly sized lines (no one-word widows) of about max_width characters."""
+    words = text.split()
+    if not words:
+        return [""]
+    n = min(max_lines, max(1, -(-len(text) // max_width)))
+    target = len(text) / n
+    lines, cur = [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > target * 1.15 and len(lines) < n - 1:
+            lines.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    lines.append(cur)
+    return lines
 
 
 def build_audio_filter(n_video_inputs: int, has_music: bool,
@@ -139,19 +156,19 @@ def build_filter_complex(clips: list, hook: str, cta: str,
                 f"offset={offset:.3f}{out}"
             )
 
-    # 3. Hook title card (top, first 4 s): wrapped to at most three lines so it never runs
-    # off the screen, on a solid accent box so it pops on paper and on stock footage alike.
-    # The text goes through a file: drawtext does not parse filter escapes inside textfile.
-    hook_lines = textwrap.wrap(hook.replace("'", "’"), width=20)[:3] or [hook]
-    hook_path = os.path.join(os.path.dirname(captions_path) or ".", "hook.txt").replace("\\", "/")
-    with open(hook_path, "w", encoding="utf-8") as hf:
-        hf.write("\n".join(hook_lines))
-    parts.append(
-        f"[vconcat]drawtext=fontfile={FONT_BOLD}:textfile='{hook_path}':"
-        "fontcolor=white:fontsize=62:line_spacing=12:"
-        "box=1:boxcolor=0xDE4630@0.96:boxborderw=28:"
-        "x=(w-text_w)/2:y=h*0.10:enable='between(t,0,4.0)'[v1]"
-    )
+    # 3. Hook title card (top, first 4 s): balanced into at most three lines, each line centred
+    # in its own solid accent box so it never runs off screen and pops on paper and footage.
+    hook_prev = "[vconcat]"
+    for li, line in enumerate(balanced_wrap(hook, 20)):
+        out = f"[hk{li}]"
+        parts.append(
+            f"{hook_prev}drawtext=fontfile={FONT_BOLD}:text='{drawtext_escape(line)}':"
+            "fontcolor=white:fontsize=62:"
+            "box=1:boxcolor=0xDE4630@0.96:boxborderw=20:"
+            f"x=(w-text_w)/2:y=h*0.10+{li * 112}:enable='between(t,0,4.0)'{out}"
+        )
+        hook_prev = out
+    parts.append(f"{hook_prev}copy[v1]")
 
     # 4. Burned-in subtitles (word-level SRT)
     subs = captions_path.replace("\\", "/")
