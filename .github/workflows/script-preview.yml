@@ -1,0 +1,50 @@
+name: script-preview
+
+# Generation only: writes N scripts for a series and prints them, so prompt changes can
+# be judged without building videos. Writes nothing back to the repo (used-topic logs
+# stay in the runner) and posts nothing.
+on:
+  workflow_dispatch:
+    inputs:
+      niche:
+        description: "Series id (men_psychology or power_psychology)"
+        type: choice
+        options: [men_psychology, power_psychology]
+        default: men_psychology
+      count:
+        description: "How many scripts to generate"
+        default: "3"
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - run: pip install openai requests Pillow numpy
+      - name: Generate and print scripts
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          NICHE: ${{ inputs.niche }}
+          COUNT: ${{ inputs.count }}
+        run: |
+          case "$COUNT" in *[!0-9]*|"") echo "count must be a number"; exit 1;; esac
+          for i in $(seq 1 "$COUNT"); do
+            echo "=================== script $i ==================="
+            python scripts/generate_script_niche.py --niche "config/niches/$NICHE.json" --out "build/p$i" >/dev/null
+            python - <<PY
+          import json
+          d = json.load(open("build/p$i/script.json"))
+          print("TOPIC :", d["topic"])
+          print("HOOK  :", d["hook"])
+          print("WORDS :", len(d["narration"].split()))
+          print("TEXT  :", d["narration"])
+          print("SEGS  :", [(s.get("scene"), len(s["text"].split())) for s in d["segments"]])
+          print("YT    :", d.get("seo_title"))
+          PY
+          done
