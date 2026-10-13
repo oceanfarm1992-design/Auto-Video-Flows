@@ -140,7 +140,8 @@ def schema_example(n_segments: int) -> str:
 def build_prompt(cfg: dict, topic: str, tiktok_keywords: list[str], name: str = "Omar") -> str:
     seo_note = (
         "\n\nFor caption_tiktok/hashtags_tiktok, naturally weave in 2-3 of these high-search "
-        f"terms where they genuinely fit (skip any that don't): {', '.join(tiktok_keywords)}."
+        f"terms where they genuinely fit (skip any that don't): {', '.join(tiktok_keywords)}. "
+        "Use these terms ONLY in the caption and hashtag fields, never in the spoken beats."
         if tiktok_keywords else ""
     )
     examples = "\n\n".join(
@@ -200,6 +201,13 @@ def generate(client: OpenAI, cfg: dict, topic: str, model: str, keywords: list[s
         issues = lint_narration(data["narration"], MIN_WORDS, MAX_WORDS)
         if len(data.get("beats", [])) != N_SEGMENTS:
             issues.append(f"write exactly {N_SEGMENTS} beats (you wrote {len(data.get('beats', []))})")
+        title = str(data.get("title", "")).strip()
+        if title.upper().startswith("WHY ") or title.lower() == topic.lower():
+            issues.append('the hook card "title" must be a curiosity-gap line (e.g. "NINE YEARS WITHOUT A NEW COAT"), '
+                          'not the topic restated and not starting with WHY')
+        kw_hits = [k for k in cfg.get("tiktok_seo_keywords", []) if k.lower() in data["narration"].lower()]
+        if kw_hits:
+            issues.append("SEO phrases must not appear in the spoken beats: " + ", ".join(kw_hits))
         print(f"[generate_script_niche] draft {attempt}: {len(data['narration'].split())} words, "
               f"{'clean' if not issues else '; '.join(issues)}")
         if best is None or len(issues) < len(best_issues):
