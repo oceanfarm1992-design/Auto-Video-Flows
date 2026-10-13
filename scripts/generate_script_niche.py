@@ -68,7 +68,7 @@ SYSTEM_PROMPT = (
 )
 
 STRUCTURE = """STORY STRUCTURE. The script is exactly 10 BEATS, each 8-12 words, one new picture per beat:
-- Beat 1 HOOK (12 words or fewer): a specific, slightly surprising claim, or the middle of a moment, that makes someone stop scrolling and need the answer. Never start with "Picture", "Imagine", "Have you ever" or a restatement of the topic.
+- Beat 1 HOOK (12 words or fewer): the strongest of your hook_options; a specific, slightly surprising claim, or the middle of a moment, that makes someone stop scrolling and need the answer. Never start with "Picture", "Imagine", "Have you ever" or a restatement of the topic.
 - Beats 2-3 SCENE: one illustrative person (fresh first name, not Alex or Sam) in one concrete moment with a sensory detail. Make clear he is illustrative ("Take a man like Marcus").
 - Beats 4-5 TENSION: what he does that looks strange or wrong. Hold the reason back for a beat.
 - Beats 6-7 REVEAL: the real reason, one clear idea, explained with a "because". No vague words like "mindset", "cycle" or "deeper reason" unless you explain them in plain words.
@@ -113,6 +113,7 @@ def schema_example(n_segments: int) -> str:
         "media_type": "video",
     }
     obj = {
+        "hook_options": ["five DIFFERENT possible first lines (12 words max each), one per formula: odd specific detail / contradiction / bold claim / direct accusation to the viewer / a moment cut off mid-action"],
         "title": "On-screen hook card, max 7 words, ALL CAPS, makes you need the answer",
         "beats": [beat, f"... exactly {n_segments} beat objects in total, in order"],
         "lesson": "one-sentence takeaway",
@@ -162,13 +163,19 @@ Return ONLY valid JSON (no markdown, no code fences) shaped like this:
 
 
 def call_openai(client: OpenAI, prompt: str, model: str) -> dict:
-    response = client.chat.completions.create(
+    kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
-        temperature=0.9,
-        max_tokens=2600,
         response_format={"type": "json_object"},
     )
+    if model.startswith("gpt-5") and "chat" not in model:
+        # reasoning models: no temperature, and the reasoning shares the token budget
+        kwargs["max_completion_tokens"] = 8000
+        kwargs["reasoning_effort"] = os.environ.get("SCRIPT_REASONING", "low")
+    else:
+        kwargs["max_tokens"] = 2600
+        kwargs["temperature"] = 0.9
+    response = client.chat.completions.create(**kwargs)
     return json.loads(response.choices[0].message.content)
 
 
