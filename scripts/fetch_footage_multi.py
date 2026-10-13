@@ -15,6 +15,7 @@ Outputs:
 Usage:
     python scripts/fetch_footage_multi.py
     python scripts/fetch_footage_multi.py --force-source animate
+    python scripts/fetch_footage_multi.py --force-source doodle   # stick-man / doodle scenes
 """
 import argparse
 import json
@@ -167,6 +168,21 @@ def generate_anim(query: str, dest: str, duration: float,
             "resolution": f"{w}x{h}", "license": "Generated animation"}
 
 
+def generate_doodle(segment: dict, dest: str, duration: float, idx: int, used_scenes: list) -> dict:
+    """Render a doodle / stick-man scene for this segment (doodle_engine.py). Needs no
+    network and no stock library. Uses the scene id the script writer picked, else a
+    keyword match on the narration; never repeats a scene within one video."""
+    from doodle_engine import render_clip  # local import: pulls in Pillow/numpy
+    from doodle_scenes import SCENE_FUNCS, pick_scene
+    scene_id = segment.get("scene")
+    if scene_id not in SCENE_FUNCS or scene_id in used_scenes:
+        scene_id = pick_scene(segment.get("text", ""), used_scenes)
+    used_scenes.append(scene_id)
+    render_clip(SCENE_FUNCS[scene_id], duration + 1.0, dest, seed=idx + 1)
+    return {"source": "doodle", "query": scene_id, "type": "video",
+            "resolution": "1080x1920", "license": "Generated doodle animation"}
+
+
 # ── Per-segment fetcher ───────────────────────────────────────────────────────
 
 # Old prompt versions asked GPT for a footage_query and handed it these exact
@@ -225,7 +241,9 @@ def _clean_query(raw: str, field: str = "", name: str = "") -> str:
 
 def fetch_segment(idx: int, segment: dict, duration: float,
                   out_dir: str, cfg: dict, force_source: str | None,
-                  field: str = "", name: str = "") -> dict:
+                  field: str = "", name: str = "",
+                  used_scenes: list | None = None) -> dict:
+    used_scenes = used_scenes if used_scenes is not None else []
     query = _clean_query(segment.get("footage_query", "cinematic nature"), field, name)
     want_photo = segment.get("media_type") == "photo" and not force_source
 
@@ -256,6 +274,9 @@ def fetch_segment(idx: int, segment: dict, duration: float,
                 info = pixabay_photo(query, photo_dest)
                 if info:
                     dest = photo_dest
+            elif source == "doodle":
+                info = generate_doodle(segment, vid_dest, duration, idx, used_scenes)
+                dest = vid_dest
             elif source == "animate":
                 seed = sum(ord(c) for c in query) + idx
                 info = generate_anim(query, vid_dest, duration, cfg, seed)
@@ -299,7 +320,7 @@ def main():
     ap.add_argument("--out", default="build")
     ap.add_argument("--force-source", default=None,
                     choices=["pexels_video", "pixabay_video",
-                             "pexels_photo", "pixabay_photo", "animate"])
+                             "pexels_photo", "pixabay_photo", "animate", "doodle"])
     args = ap.parse_args()
 
     with open(args.script, encoding="utf-8") as f:
@@ -336,8 +357,9 @@ def main():
 
     os.makedirs(args.out, exist_ok=True)
     manifest = []
+    used_scenes: list = []
     for i, (seg, dur) in enumerate(zip(segments, durations)):
-        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name)
+        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name, used_scenes)
         print(f"[fetch_footage_multi] segment {i+1}/{len(segments)}: "
               f"'{seg.get('footage_query', '')}' -> query='{info['query']}' ~{dur:.1f}s")
         manifest.append(info)

@@ -12,6 +12,9 @@ on:
       topic_index:
         description: "Force a topic index (blank = random)"
         default: ""
+      force_source:
+        description: "Force one footage source for every segment, e.g. doodle (blank = stock)"
+        default: ""
 
 permissions:
   contents: write
@@ -23,4 +26,5 @@ jobs:
       niche: men_psychology
       skip_post: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_post }}
       topic_index: ${{ inputs.topic_index || '' }}
+      force_source: ${{ inputs.force_source || '' }}
     secrets: inherit

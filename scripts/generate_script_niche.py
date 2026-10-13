@@ -30,6 +30,12 @@ except ImportError:
 
 from generate_script_ai import write_platform_captions
 
+try:  # doodle scene menu so the writer can pick a drawable scene per segment
+    from doodle_scenes import scene_menu
+except ImportError:  # Pillow/numpy missing: segments just get no scene id
+    def scene_menu() -> str:
+        return ""
+
 RECENT_WINDOW = 15
 MIN_WORDS, MAX_WORDS = 50, 150
 
@@ -73,6 +79,7 @@ def build_prompt(cfg: dict, topic: str, tiktok_keywords: list[str]) -> str:
         f"terms where they genuinely fit (skip any that don't): {', '.join(tiktok_keywords)}."
         if tiktok_keywords else ""
     )
+    menu = scene_menu()
     return f"""Write a short-form video script for a channel about: {cfg["channel_description"]}.
 Tone: {cfg["tone"]}.
 Topic of this video: "{topic}"{seo_note}
@@ -83,10 +90,10 @@ Return ONLY valid JSON with these exact keys (no markdown, no code fences):
   "title": "Hook title, max 8 words, ALL CAPS, curiosity-driven",
   "narration": "Spoken script of 100-120 words (never fewer than 90; count them). First sentence is a scroll-stopping hook. Explain the psychology behind the topic in plain words, with one concrete everyday example. End with one memorable line. No ALL CAPS words.",
   "segments": [
-    {{"text": "Exact opening words of the narration (~25 words).", "footage_query": "YOUR OWN 3-6 word stock-footage search for a filmable scene matching THIS segment", "media_type": "video"}},
-    {{"text": "Exact next words of the narration (~30 words).", "footage_query": "YOUR OWN 3-6 word search, visually different from segment 1", "media_type": "video"}},
-    {{"text": "Exact next words of the narration (~30 words).", "footage_query": "YOUR OWN 3-6 word search, visually different from segments 1-2", "media_type": "photo"}},
-    {{"text": "Exact final words of the narration (~25 words).", "footage_query": "YOUR OWN 3-6 word search, visually different from segments 1-3", "media_type": "video"}}
+    {{"text": "Exact opening words of the narration (~25 words).", "scene": "ONE id from the SCENE LIST below", "footage_query": "YOUR OWN 3-6 word stock-footage search for a filmable scene matching THIS segment", "media_type": "video"}},
+    {{"text": "Exact next words of the narration (~30 words).", "scene": "ONE id from the SCENE LIST below", "footage_query": "YOUR OWN 3-6 word search, visually different from segment 1", "media_type": "video"}},
+    {{"text": "Exact next words of the narration (~30 words).", "scene": "ONE id from the SCENE LIST below", "footage_query": "YOUR OWN 3-6 word search, visually different from segments 1-2", "media_type": "photo"}},
+    {{"text": "Exact final words of the narration (~25 words).", "scene": "ONE id from the SCENE LIST below", "footage_query": "YOUR OWN 3-6 word search, visually different from segments 1-3", "media_type": "video"}}
   ],
   "lesson": "One sentence takeaway",
   "footage_query": "3-6 word fallback search for the whole video",
@@ -104,6 +111,9 @@ Return ONLY valid JSON with these exact keys (no markdown, no code fences):
 
 Rules:
 - The four segment texts, in order, must together be the complete narration with no gaps.
+- "scene": pick the ONE id from the SCENE LIST that best illustrates what THAT segment says. Use each id at most once in the video.
+SCENE LIST (stick-man doodle animations):
+{menu}
 - Every footage_query is placeholder instruction text, not example output: write your own real search phrase.
   These hit royalty-free stock libraries (Pexels/Pixabay), so describe a generic filmable ACTION, SETTING or OBJECT.
   Never name a real person. Scene ideas for this series: {cfg["footage_hint"]}."""
