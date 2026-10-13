@@ -183,7 +183,7 @@ def main() -> None:
     data = normalise(generate(OpenAI(api_key=api_key), cfg, topic, args.model, keywords), cfg, topic)
 
     out_dir = Path(args.out)
-    out_dir.mkdir(exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     (out_dir / "script.json").write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     (out_dir / "script.txt").write_text(data["narration"], encoding="utf-8")
     write_platform_captions(data, out_dir)
