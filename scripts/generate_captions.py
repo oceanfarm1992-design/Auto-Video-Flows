@@ -50,12 +50,13 @@ CAPTION_SIZE = 82
 CAPTION_MARGIN_V = 430          # distance of the caption baseline from the bottom edge (px at 1080x1920)
 HILITE = "&H0000D2FF&"          # ASS colours are BGR: this is warm yellow
 WORDS_PER_GROUP = 3
+MAX_GROUP_CHARS = 17             # 82 px bold caps: more than this would run off a 1080 px screen
 
 ASS_HEADER = f"""[Script Info]
 ScriptType: v4.00+
 PlayResX: 1080
 PlayResY: 1920
-WrapStyle: 2
+WrapStyle: 0
 ScaledBorderAndShadow: yes
 
 [V4+ Styles]
@@ -76,9 +77,14 @@ def fmt_ass_ts(seconds: float) -> str:
 
 
 def _group_words(words: list[tuple[str, float, float]]) -> list[list[tuple[str, float, float]]]:
-    """Groups of up to WORDS_PER_GROUP words, always ending a group at sentence end."""
+    """Groups of up to WORDS_PER_GROUP words and MAX_GROUP_CHARS characters, always ending a
+    group at sentence end, so a line of big caps never runs off the screen."""
     groups, cur = [], []
     for w in words:
+        chars = sum(len(x[0].strip()) + 1 for x in cur) + len(w[0].strip())
+        if cur and chars > MAX_GROUP_CHARS:
+            groups.append(cur)
+            cur = []
         cur.append(w)
         if len(cur) >= WORDS_PER_GROUP or w[0].rstrip().endswith((".", "!", "?", "…")):
             groups.append(cur)
