@@ -27,6 +27,15 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install openai requests Pillow numpy
+      - name: List usable chat models
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python - <<PY
+          from openai import OpenAI
+          ids = sorted(m.id for m in OpenAI().models.list().data)
+          print("MODELS:", [i for i in ids if i.startswith(("gpt-4", "gpt-5", "o1", "o3", "o4")) and not any(x in i for x in ("audio", "realtime", "transcribe", "tts", "image", "search", "instruct", "embedding"))])
+          PY
       - name: Generate and print scripts
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}

@@ -20,6 +20,7 @@ BANNED = [
     "deeper connection", "vulnerability is a strength", "go a long way", "goes a long way",
     "understanding this", "in conclusion", "ultimately,", "let's dive", "delve", "tapestry",
     "it's a common tendency", "many men often", "foster", "embrace", "empower", "resonate",
+    "deeper reason", "unspoken rule", "cautious hope", "badge of honor", "speak louder",
 ]
 SENTENCE_SPLIT = re.compile(r"(?<=[.!?…])\s+")
 
@@ -52,6 +53,8 @@ def lint_narration(text: str, min_words: int, max_words: int) -> list[str]:
 
     sents = sentences(text)
     if sents:
+        if re.match(r"(picture|imagine|have you ever|did you know|ever wonder|let's talk)\b", _norm(sents[0])):
+            issues.append("the hook must not open with Picture/Imagine/Have you ever; start inside a moment or with a bold claim")
         if len(sents[0].split()) > 16:
             issues.append("the first sentence (hook) is too long; make it 12 words or fewer")
         lengths = [len(s.split()) for s in sents]

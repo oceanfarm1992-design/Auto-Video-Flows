@@ -37,7 +37,7 @@ except ImportError:
     sys.exit("openai package not installed. Run: pip install openai")
 
 from generate_script_ai import write_platform_captions
-from script_quality import lint_narration, rebuild_segments, segments_match
+from script_quality import lint_narration, rebuild_segments
 
 try:  # doodle scene menu so the writer can pick a drawable scene per beat
     from doodle_scenes import SCENE_FUNCS, pick_scene, scene_menu
@@ -67,16 +67,16 @@ SYSTEM_PROMPT = (
     "group. No medical, legal or financial advice. Output ONLY valid JSON."
 )
 
-STRUCTURE = """STORY STRUCTURE (follow in this order; do not print the labels):
-1. HOOK: the first sentence, 12 words or fewer. A specific, slightly surprising claim or scene that makes someone stop scrolling and need the answer. NEVER restate the topic as a general statement.
-2. SCENE: meet one illustrative person ("Picture Daniel...", "Take a man like Marcus...") in one concrete moment with a sensory detail. Use a fresh first name.
-3. TENSION: what he does that looks strange or wrong. Hold back the reason for a beat.
-4. REVEAL: the real psychological reason, in plain words. One idea only.
-5. TWIST: flip how the viewer saw it. A reframe that lands emotionally.
-6. CLOSE: one short line that echoes or answers the hook and ends with a trigger to share or comment ("Send this to...", "Would you have guessed?")."""
+STRUCTURE = """STORY STRUCTURE. The script is exactly 10 BEATS, each 8-12 words, one new picture per beat:
+- Beat 1 HOOK (12 words or fewer): a specific, slightly surprising claim, or the middle of a moment, that makes someone stop scrolling and need the answer. Never start with "Picture", "Imagine", "Have you ever" or a restatement of the topic.
+- Beats 2-3 SCENE: one illustrative person (fresh first name, not Alex or Sam) in one concrete moment with a sensory detail. Make clear he is illustrative ("Take a man like Marcus").
+- Beats 4-5 TENSION: what he does that looks strange or wrong. Hold the reason back for a beat.
+- Beats 6-7 REVEAL: the real reason, one clear idea, explained with a "because". No vague words like "mindset", "cycle" or "deeper reason" unless you explain them in plain words.
+- Beat 8 TWIST: flip how the viewer saw it. A reframe that lands emotionally.
+- Beats 9-10 CLOSE: end on a short line that echoes or answers the hook, then a trigger to share or comment ("Send this to...", "Would you have guessed?")."""
 
 STYLE = """STYLE RULES:
-- {words} words in total, spoken at a calm pace. Count them.
+- The ten beats read in order as ONE continuous script; never repeat words between beats.
 - Talk like a smart friend: contractions, plain words, no jargon.
 - Rhythm: mix very short sentences (2-5 words) with longer ones. Several short punches.
 - Concrete beats abstract: ages, times, objects, places. Every idea needs an example.
@@ -106,16 +106,15 @@ def pick_topic(topics: list[str], used: list[str], force_index: int | None) -> s
 
 
 def schema_example(n_segments: int) -> str:
-    seg = {
-        "text": "the exact next 7-13 words of the narration, nothing skipped",
+    beat = {
+        "text": "8-12 words, the exact words spoken for this beat",
         "scene": "ONE id from the SCENE LIST that illustrates this beat",
         "footage_query": "3-6 word generic stock search for this beat (an action or setting, never a named person)",
         "media_type": "video",
     }
     obj = {
         "title": "On-screen hook card, max 7 words, ALL CAPS, makes you need the answer",
-        "narration": "the full spoken script",
-        "segments": [seg, f"... exactly {n_segments} objects like this in total, in order, together they are the whole narration"],
+        "beats": [beat, f"... exactly {n_segments} beat objects in total, in order"],
         "lesson": "one-sentence takeaway",
         "footage_query": "3-6 word fallback stock search for the whole video",
         "seo_title": "YouTube Shorts title, max 70 characters, keyword-rich, curiosity",
@@ -139,7 +138,8 @@ def build_prompt(cfg: dict, topic: str, tiktok_keywords: list[str]) -> str:
         if tiktok_keywords else ""
     )
     examples = "\n\n".join(
-        f'Topic: {ex["topic"]}\nHook card: {ex["title"]}\nScript: {ex["narration"]}'
+        f'Topic: {ex["topic"]}\nHook card: {ex["title"]}\nBeats:\n'
+        + "\n".join(f"{i}. {t}" for i, t in enumerate(rebuild_segments(ex["narration"], N_SEGMENTS), 1))
         for ex in cfg.get("examples", [])
     )
     example_block = (
@@ -154,7 +154,7 @@ Topic of this video: "{topic}"{seo_note}
 
 {STRUCTURE}
 
-{STYLE.format(words=f"{MIN_WORDS + 5}-{MAX_WORDS - 15}")}
+{STYLE}
 {example_block}{scene_block}
 Return ONLY valid JSON (no markdown, no code fences) shaped like this:
 
@@ -172,6 +172,10 @@ def call_openai(client: OpenAI, prompt: str, model: str) -> dict:
     return json.loads(response.choices[0].message.content)
 
 
+def beats_to_narration(data: dict) -> str:
+    return " ".join(str(b.get("text", "")).strip() for b in data.get("beats", []) if isinstance(b, dict))
+
+
 def generate(client: OpenAI, cfg: dict, topic: str, model: str, keywords: list[str]) -> dict:
     """Write, lint, and ask for a rewrite (up to three drafts) until the script has no
     filler, the right rhythm and length. Only a hopeless length is fatal."""
@@ -180,9 +184,11 @@ def generate(client: OpenAI, cfg: dict, topic: str, model: str, keywords: list[s
     best, best_issues = None, None
     for attempt in (1, 2, 3):
         data = call_openai(client, base + feedback, model)
-        issues = lint_narration(str(data.get("narration", "")), MIN_WORDS, MAX_WORDS)
-        print(f"[generate_script_niche] draft {attempt}: "
-              f"{len(str(data.get('narration', '')).split())} words, "
+        data["narration"] = beats_to_narration(data)
+        issues = lint_narration(data["narration"], MIN_WORDS, MAX_WORDS)
+        if len(data.get("beats", [])) != N_SEGMENTS:
+            issues.append(f"write exactly {N_SEGMENTS} beats (you wrote {len(data.get('beats', []))})")
+        print(f"[generate_script_niche] draft {attempt}: {len(data['narration'].split())} words, "
               f"{'clean' if not issues else '; '.join(issues)}")
         if best is None or len(issues) < len(best_issues):
             best, best_issues = data, issues
@@ -190,7 +196,7 @@ def generate(client: OpenAI, cfg: dict, topic: str, model: str, keywords: list[s
             return data
         feedback = ("\n\nYour previous draft had these problems. Write a NEW draft that fixes every one "
                     "of them while keeping the story structure:\n- " + "\n- ".join(issues))
-    words = len(str(best.get("narration", "")).split())
+    words = len(best.get("narration", "").split())
     if HARD_MIN <= words <= HARD_MAX:
         print("[generate_script_niche] using the best draft despite remaining lint issues")
         return best
@@ -198,27 +204,25 @@ def generate(client: OpenAI, cfg: dict, topic: str, model: str, keywords: list[s
 
 
 def build_segments(data: dict, cfg: dict) -> list[dict]:
-    """N_SEGMENTS beats that together are the narration, each with a scene id."""
+    """The beats, each with a valid, non-repeating scene id; rebuilt from the narration
+    when the model didn't return exactly N_SEGMENTS beats."""
     narration = data.get("narration", "")
-    raw = data.get("segments") or []
-    if segments_match(raw, narration, N_SEGMENTS):
-        texts = [str(s["text"]).strip() for s in raw]
-    else:
-        print("[generate_script_niche] model segments don't match the narration; rebuilding them")
-        texts = rebuild_segments(narration, N_SEGMENTS)
-        raw = []
+    beats = [b for b in data.get("beats", []) if isinstance(b, dict) and str(b.get("text", "")).strip()]
+    if len(beats) != N_SEGMENTS:
+        print("[generate_script_niche] wrong beat count; rebuilding beats from the narration")
+        beats = [{"text": t} for t in rebuild_segments(narration, N_SEGMENTS)]
     used: list[str] = []
     segments = []
-    for i, text in enumerate(texts):
-        given = raw[i] if i < len(raw) else {}
-        scene = given.get("scene") if given.get("scene") in SCENE_FUNCS and given.get("scene") not in used else ""
+    for beat in beats:
+        text = str(beat["text"]).strip()
+        scene = beat.get("scene") if beat.get("scene") in SCENE_FUNCS and beat.get("scene") not in used else ""
         scene = scene or pick_scene(text, used)
         if scene:
             used.append(scene)
         segments.append({
             "text": text,
             "scene": scene,
-            "footage_query": given.get("footage_query") or f"{cfg['field']} {data.get('footage_query', 'cinematic')}".strip(),
+            "footage_query": beat.get("footage_query") or f"{cfg['field']} {data.get('footage_query', 'cinematic')}".strip(),
             "media_type": "video",
         })
     return segments
