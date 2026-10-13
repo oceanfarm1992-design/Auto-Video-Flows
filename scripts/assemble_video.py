@@ -19,6 +19,7 @@ import datetime
 import json
 import os
 import subprocess
+import textwrap
 import sys
 from pathlib import Path
 
@@ -138,13 +139,18 @@ def build_filter_complex(clips: list, hook: str, cta: str,
                 f"offset={offset:.3f}{out}"
             )
 
-    # 3. Hook title card (top, first 4 s)
-    hook_e = drawtext_escape(hook)
+    # 3. Hook title card (top, first 4 s): wrapped to at most three lines so it never runs
+    # off the screen, on a solid accent box so it pops on paper and on stock footage alike.
+    # The text goes through a file: drawtext does not parse filter escapes inside textfile.
+    hook_lines = textwrap.wrap(hook.replace("'", "’"), width=20)[:3] or [hook]
+    hook_path = os.path.join(os.path.dirname(captions_path) or ".", "hook.txt").replace("\\", "/")
+    with open(hook_path, "w", encoding="utf-8") as hf:
+        hf.write("\n".join(hook_lines))
     parts.append(
-        f"[vconcat]drawtext=fontfile={FONT_BOLD}:text='{hook_e}':"
-        "fontcolor=white:fontsize=52:line_spacing=8:"
-        "box=1:boxcolor=black@0.55:boxborderw=22:"
-        "x=(w-text_w)/2:y=h*0.13:enable='between(t,0,4.0)'[v1]"
+        f"[vconcat]drawtext=fontfile={FONT_BOLD}:textfile='{hook_path}':"
+        "fontcolor=white:fontsize=62:line_spacing=12:"
+        "box=1:boxcolor=0xDE4630@0.96:boxborderw=28:"
+        "x=(w-text_w)/2:y=h*0.10:enable='between(t,0,4.0)'[v1]"
     )
 
     # 4. Burned-in subtitles (word-level SRT)

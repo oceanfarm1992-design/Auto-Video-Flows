@@ -63,7 +63,7 @@ def draw_label(c: Canvas, text: str, t: float, dur: float):
     k = pop((t - 0.2) / 0.35)
     if k <= 0.02:
         return
-    c.text(540, 905, text.upper(), size=int(70 * min(1.0, k)), color=ACCENT, angle=-3.5)
+    c.text(540, 705, text.upper(), size=int(72 * min(1.0, k)), color=ACCENT, angle=-3.5)
 
 
 # -------------------------------------------------------------------------- props

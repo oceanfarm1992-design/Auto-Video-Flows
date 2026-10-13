@@ -250,6 +250,22 @@ def build_segments(data: dict, cfg: dict) -> list[dict]:
     return segments
 
 
+def fix_title(data: dict, topic: str) -> str:
+    """The hook card must not restate the topic or start with WHY. The model keeps doing
+    it even when asked, so derive a curiosity-gap card from its own first beat instead."""
+    title = str(data.get("title", "")).strip()
+    if title and not title.upper().startswith("WHY ") and title.lower() != topic.lower():
+        return title
+    options = [str(o).strip() for o in data.get("hook_options", []) if isinstance(o, str) and 2 <= len(str(o).split()) <= 8]
+    if options:
+        return min(options, key=lambda o: len(o.split())).rstrip(".!?").upper()
+    beats = [b for b in data.get("beats", []) if isinstance(b, dict) and str(b.get("text", "")).strip()]
+    first = str(beats[0]["text"]).strip() if beats else topic
+    if len(first.split()) > 9:
+        first = first.split(",")[0].split(" - ")[0]
+    return first.rstrip(".!?").upper()
+
+
 def normalise(data: dict, cfg: dict, topic: str) -> dict:
     data["id"] = cfg["id"]
     data["niche"] = cfg["id"]
@@ -258,7 +274,8 @@ def normalise(data: dict, cfg: dict, topic: str) -> dict:
     data["field"] = cfg["field"]
     data["era"] = ""
     data["topic_source"] = "niche"
-    data["hook"] = data.get("title", topic.upper())
+    data["title"] = fix_title(data, topic)
+    data["hook"] = data["title"]
     data["text"] = data.get("lesson", "")
     data["narration"] = data.get("narration", "")
     data["footage_query"] = data.get("footage_query") or f"{cfg['field']} cinematic"
