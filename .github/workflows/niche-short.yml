@@ -89,10 +89,15 @@ jobs:
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           FORCE_SOURCE: ${{ inputs.force_source }}
         run: |
+          # Visuals: the run's force_source input wins; otherwise the series' "visuals" setting
+          # (doodle = stick-man animation, stock = Pexels/Pixabay). Pass "stock" to force stock.
+          SRC="$FORCE_SOURCE"
+          [ -n "$SRC" ] || SRC=$(python -c "import json;print(json.load(open('$NICHE_CFG')).get('visuals',''))")
           ARG=""
-          if [ -n "$FORCE_SOURCE" ]; then
-            ARG="--force-source $FORCE_SOURCE"
+          if [ -n "$SRC" ] && [ "$SRC" != "stock" ]; then
+            ARG="--force-source $SRC"
           fi
+          echo "Visuals: ${SRC:-stock}"
           python scripts/fetch_footage_multi.py --min-clip 2.5 $ARG
 
       - name: Generate background music
