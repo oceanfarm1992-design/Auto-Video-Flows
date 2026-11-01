@@ -13,7 +13,7 @@ on:
         description: "Force a topic index (blank = random)"
         default: ""
       force_source:
-        description: "Force one footage source for every segment, e.g. doodle (blank = stock)"
+        description: "Override visuals: mix, doodle or stock (blank = the series config)"
         default: ""
 
 permissions:

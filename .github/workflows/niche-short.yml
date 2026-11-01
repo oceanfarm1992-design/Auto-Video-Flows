@@ -18,7 +18,7 @@ on:
         type: string
         default: ""
       force_source:
-        description: "Force one footage source for every segment (e.g. doodle); blank = stock with fallbacks"
+        description: "Override the series' visuals: mix, doodle or stock; blank = the series config"
         type: string
         default: ""
 
@@ -90,7 +90,8 @@ jobs:
           FORCE_SOURCE: ${{ inputs.force_source }}
         run: |
           # Visuals: the run's force_source input wins; otherwise the series' "visuals" setting
-          # (doodle = stick-man animation, stock = Pexels/Pixabay). Pass "stock" to force stock.
+          # (mix = doodle scenes + stock in drawn frames + stock with marker doodles, doodle = stick-man
+          # animation only, stock = Pexels/Pixabay only). The doodle colour theme rotates daily.
           SRC="$FORCE_SOURCE"
           [ -n "$SRC" ] || SRC=$(python -c "import json;print(json.load(open('$NICHE_CFG')).get('visuals',''))")
           ARG=""

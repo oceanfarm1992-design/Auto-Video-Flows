@@ -24,8 +24,7 @@ from doodle_engine import (
     Canvas, Figure, Pose, clamp, draw_figure, ease, hip_y_sitting, hip_y_standing,
     lerp, pop, wave,
 )
-
-SKY = (214, 226, 238)
+from doodle_themes import SKY
 
 
 # ------------------------------------------------------------------------ helpers

@@ -47,13 +47,11 @@ VIEW_K = 1.35                     # the design stage is magnified by this when d
 VIEW_GROUND = 1290                # frame y that the design ground line lands on
 # Visible design region: x 140-940, y ~830-1540 (a 800 x 710 stage). Props must stay inside it.
 
-INK = (30, 30, 34)
-ACCENT = (222, 70, 48)
-BLUE = (66, 126, 196)
-GOLD = (232, 182, 48)
-GREY = (176, 172, 162)
-LIGHT = (226, 222, 210)
-PAPER = (248, 244, 232)
+from doodle_themes import (  # noqa: E402  canonical palette, re-exported for the scenes
+    ACCENT, BLUE, CLASSIC, GOLD, GREY, INK, LIGHT, PAPER, Theme,
+)
+
+CAMERA_MOVES = ("push", "pull", "pan_left", "pan_right", "punch", "drift")
 
 _FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -118,15 +116,45 @@ def paper_texture() -> Image.Image:
 
 
 class Canvas:
-    """One drawn frame. All coordinates are in output pixels (1080x1920)."""
+    """One drawn frame. Scenes draw in design coordinates (see _sp) with the canonical
+    palette; the theme recolours every stroke. transparent=True draws on a clear RGBA
+    layer, used for marks laid over stock footage."""
 
-    def __init__(self, seed: int):
-        self.img = Image.new("RGB", (W * SS, H * SS), PAPER)
+    def __init__(self, seed: int, theme: Theme | None = None, transparent: bool = False):
+        self.theme = theme or CLASSIC
+        self.transparent = transparent
+        if transparent:
+            self.img = Image.new("RGBA", (W * SS, H * SS), (0, 0, 0, 0))
+        else:
+            self.img = Image.new("RGB", (W * SS, H * SS), self.theme.bg)
         self.d = ImageDraw.Draw(self.img)
         rng = random.Random(seed)
         self.ph1 = rng.uniform(0, 6.28)
         self.ph2 = rng.uniform(0, 6.28)
         self._focus = (W / 2, 1000.0)     # zoom centre in FRAME pixels
+        if not transparent and self.theme.pattern:
+            self._pattern(self.theme.pattern, self.theme.pattern_color)
+
+    def _c(self, color):
+        """Canonical palette colour -> this theme's colour (literal colours pass through)."""
+        return None if color is None else self.theme.colors.get(color, color)
+
+    def _pattern(self, kind: str, color):
+        step, lw = 64 * SS, 2 * SS
+        if kind == "ruled":
+            for y in range(3 * step, H * SS, step):
+                self.d.line([(0, y), (W * SS, y)], fill=color, width=lw)
+            self.d.line([(120 * SS, 0), (120 * SS, H * SS)], fill=(232, 150, 150), width=lw)
+        elif kind == "grid":
+            for x in range(0, W * SS, step):
+                self.d.line([(x, 0), (x, H * SS)], fill=color, width=lw)
+            for y in range(0, H * SS, step):
+                self.d.line([(0, y), (W * SS, y)], fill=color, width=lw)
+        elif kind == "dots":
+            r = 3 * SS
+            for x in range(step // 2, W * SS, step):
+                for y in range(step // 2, H * SS, step):
+                    self.d.ellipse((x - r, y - r, x + r, y + r), fill=color)
 
     @property
     def focus(self):
@@ -160,10 +188,16 @@ class Canvas:
 
     def _stroke(self, sp, width, color):
         width = max(1, int(width * VIEW_K * SS))
-        self.d.line(sp, fill=color, width=width, joint="curve")
-        r = width / 2
-        for x, y in (sp[0], sp[-1]):
-            self.d.ellipse((x - r, y - r, x + r, y + r), fill=color)
+        passes = [(width + 6 * SS, self.theme.halo)] if self.theme.halo else []
+        for wd, col in passes + [(width, self._c(color))]:
+            self.d.line(sp, fill=col, width=wd, joint="curve")
+            r = wd / 2
+            for x, y in (sp[0], sp[-1]):
+                self.d.ellipse((x - r, y - r, x + r, y + r), fill=col)
+
+    def _fill(self, sp, fill):
+        if fill is not None:
+            self.d.polygon(sp, fill=self._c(fill))
 
     # -- primitives
     def line(self, pts, w=10, color=INK, amp=2.0, closed=False):
@@ -178,15 +212,17 @@ class Canvas:
         pts = [(cx + r * math.cos(2 * math.pi * i / n), cy + r * math.sin(2 * math.pi * i / n))
                for i in range(n)]
         sp = [self._sp(p) for p in self._boil(pts, amp)]
-        if fill is not None:
-            self.d.polygon(sp, fill=fill)
+        self._fill(sp, fill)
         if w:
             self._stroke(sp + [sp[0]], w, color)
 
     def dot(self, x, y, r, color=INK):
         px, py = self._sp((x, y))
         rr = r * VIEW_K * SS
-        self.d.ellipse((px - rr, py - rr, px + rr, py + rr), fill=color)
+        if self.theme.halo:
+            h = rr + 3 * SS
+            self.d.ellipse((px - h, py - h, px + h, py + h), fill=self.theme.halo)
+        self.d.ellipse((px - rr, py - rr, px + rr, py + rr), fill=self._c(color))
 
     def arc(self, cx, cy, r, a0, a1, w=9, color=INK, amp=1.5):
         n = max(8, int(abs(a1 - a0) / 6))
@@ -196,36 +232,56 @@ class Canvas:
 
     def poly(self, pts, fill=None, w=8, color=INK, amp=1.8):
         sp = [self._sp(p) for p in self._boil(self._subdivide(list(pts) + [pts[0]], 60)[:-1], amp)]
-        if fill is not None:
-            self.d.polygon(sp, fill=fill)
+        self._fill(sp, fill)
         if w:
             self._stroke(sp + [sp[0]], w, color)
 
     def rect(self, x, y, w_, h_, fill=None, w=8, color=INK, amp=1.8):
         self.poly([(x, y), (x + w_, y), (x + w_, y + h_), (x, y + h_)], fill, w, color, amp)
 
-    def text(self, x, y, s, size=60, color=INK, anchor="mm", angle=0.0):
+    def text(self, x, y, s, size=60, color=INK, anchor="mm", angle=0.0, box=None):
+        """Hand-lettered text; box = a canonical colour to draw a marker highlight behind it."""
         px, py = self._sp((x, y))
         fnt = font(int(size * VIEW_K))
-        if not angle:
-            self.d.text((px, py), s, font=fnt, fill=color, anchor=anchor)
+        color = self._c(color)
+        halo = {"stroke_width": 4 * SS, "stroke_fill": self.theme.halo} if self.theme.halo and box is None else {}
+        if not angle and box is None:
+            self.d.text((px, py), s, font=fnt, fill=color, anchor=anchor, **halo)
             return
-        # rotated hand-lettered text: draw on a transparent layer, rotate, paste
-        box = self.d.textbbox((0, 0), s, font=fnt, anchor="lt")
+        # rotated / boxed hand-lettered text: draw on a transparent layer, rotate, paste centred
+        bb = self.d.textbbox((0, 0), s, font=fnt, anchor="lt", **halo)
         pad = 20 * SS
-        layer = Image.new("RGBA", (box[2] + 2 * pad, box[3] + 2 * pad), (0, 0, 0, 0))
-        ImageDraw.Draw(layer).text((pad, pad), s, font=fnt, fill=color + (255,), anchor="lt")
-        layer = layer.rotate(angle, expand=True, resample=Image.BICUBIC)
+        layer = Image.new("RGBA", (bb[2] + 2 * pad, bb[3] + 2 * pad), (0, 0, 0, 0))
+        ld = ImageDraw.Draw(layer)
+        if box is not None:
+            ld.rounded_rectangle((pad * 0.4, pad * 0.6, layer.width - pad * 0.4, layer.height - pad * 0.4),
+                                 radius=pad, fill=self._c(box) + (235,))
+        ld.text((pad, pad), s, font=fnt, fill=color + (255,), anchor="lt", **halo)
+        if angle:
+            layer = layer.rotate(angle, expand=True, resample=Image.BICUBIC)
         self.img.paste(layer, (int(px - layer.width / 2), int(py - layer.height / 2)), layer)
 
+    def paste(self, im: Image.Image, design_box):
+        """Paste a picture (e.g. a stock-footage frame) into a design-coordinate box; the
+        image must already be the box's supersampled size (see box_px)."""
+        x0, y0, _, _ = self.box_px(design_box)
+        self.img.paste(im.convert(self.img.mode), (x0, y0))
+
+    @classmethod
+    def box_px(cls, design_box) -> tuple[int, int, int, int]:
+        (x0, y0), (x1, y1) = cls._sp(design_box[:2]), cls._sp(design_box[2:])
+        return int(x0), int(y0), int(x1), int(y1)
+
     # -- output
-    def to_frame(self, zoom: float = 1.0) -> Image.Image:
+    def to_frame(self, zoom: float = 1.0, pan: tuple = (0.0, 0.0)) -> Image.Image:
         im = self.img.reduce(SS)
         if zoom > 1.001:
             vw, vh = W / zoom, H / zoom
-            x0 = clamp(self.focus[0] - vw / 2, 0, W - vw)
-            y0 = clamp(self.focus[1] - vh / 2, 0, H - vh)
+            x0 = clamp(self.focus[0] + pan[0] - vw / 2, 0, W - vw)
+            y0 = clamp(self.focus[1] + pan[1] - vh / 2, 0, H - vh)
             im = im.resize((W, H), Image.BILINEAR, box=(x0, y0, x0 + vw, y0 + vh))
+        if self.transparent or not self.theme.texture:
+            return im
         return ImageChops.multiply(im, paper_texture())
 
 
@@ -378,35 +434,65 @@ def _ffmpeg() -> str:
         sys.exit("ffmpeg not found")
 
 
-def render_clip(scene, duration: float, out: str, seed: int = 0, zoom_per_sec: float = 0.012):
-    """Render scene(canvas, t, duration) for `duration` seconds into an mp4."""
-    n = max(1, int(math.ceil(duration * ANIM_FPS)))
+def camera(move: str, t: float, dur: float) -> tuple[float, tuple[float, float]]:
+    """(zoom, pan offset in frame px) for a camera move at time t, so cuts don't all feel alike."""
+    u = clamp(t / max(dur, 0.1))
+    if move == "pull":
+        return 1.14 - 0.12 * ease(u), (0.0, 0.0)
+    if move in ("pan_left", "pan_right"):
+        sign = -1 if move == "pan_left" else 1
+        return 1.12, (sign * lerp(-50, 50, ease(u)), 0.0)
+    if move == "punch":                       # quick snap-in, then a slow drift
+        return 1.0 + 0.10 * pop(t / 0.35) + 0.01 * t, (0.0, 0.0)
+    if move == "drift":
+        return 1.06 + 0.02 * wave(t, 0.15), (18 * wave(t, 0.11), 12 * wave(t, 0.09, 1.0))
+    return 1.0 + 0.02 * t, (0.0, 0.0)         # push
+
+
+def ffmpeg_rgb_sink(out: str, size: tuple[int, int] = (W, H)) -> subprocess.Popen:
+    """An ffmpeg process that encodes rgb24 frames written to its stdin at ANIM_FPS."""
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     cmd = [_ffmpeg(), "-y", "-loglevel", "error",
-           "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{W}x{H}", "-r", str(ANIM_FPS), "-i", "-",
+           "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", f"{size[0]}x{size[1]}", "-r", str(ANIM_FPS), "-i", "-",
            "-vf", f"fps={OUT_FPS}", "-c:v", "libx264", "-pix_fmt", "yuv420p",
            "-preset", "veryfast", "-crf", "20", "-movflags", "+faststart", out]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE)
+
+
+def finish(proc: subprocess.Popen):
     try:
-        for i in range(n):
-            t = i / ANIM_FPS
-            canvas = Canvas(seed * 1000 + i)
-            scene(canvas, t, duration)
-            proc.stdin.write(canvas.to_frame(1.0 + zoom_per_sec * t).tobytes())
-    finally:
         proc.stdin.close()
-        rc = proc.wait()
+    except BrokenPipeError:
+        pass                    # ffmpeg already stopped reading; its exit code below decides
+    rc = proc.wait()
     if rc != 0:
         raise RuntimeError(f"ffmpeg failed with code {rc}")
 
 
-def contact_sheet(scenes: dict, out: str, at: float = 0.6, cols: int = 4, dur: float = 6.0):
+def render_clip(scene, duration: float, out: str, seed: int = 0, theme: Theme | None = None,
+                move: str = "push"):
+    """Render scene(canvas, t, duration) for `duration` seconds into an mp4."""
+    n = max(1, int(math.ceil(duration * ANIM_FPS)))
+    proc = ffmpeg_rgb_sink(out)
+    try:
+        for i in range(n):
+            t = i / ANIM_FPS
+            canvas = Canvas(seed * 1000 + i, theme)
+            scene(canvas, t, duration)
+            zoom, pan = camera(move, t, duration)
+            proc.stdin.write(canvas.to_frame(zoom, pan).tobytes())
+    finally:
+        finish(proc)
+
+
+def contact_sheet(scenes: dict, out: str, at: float = 0.6, cols: int = 4, dur: float = 6.0,
+                  theme: Theme | None = None):
     """One tile per scene at time at*dur, for eyeballing the catalog."""
     tw, th = W // 4, H // 4
     rows = math.ceil(len(scenes) / cols)
     sheet = Image.new("RGB", (cols * tw, rows * th), (255, 255, 255))
     for i, (name, fn) in enumerate(scenes.items()):
-        c = Canvas(i)
+        c = Canvas(i, theme)
         fn(c, at * dur, dur)
         tile = c.to_frame(1.0).resize((tw, th), Image.LANCZOS)
         sheet.paste(tile, ((i % cols) * tw, (i // cols) * th))
@@ -422,14 +508,18 @@ def main():
     ap.add_argument("--out", default="build/doodle_test.mp4")
     ap.add_argument("--sheet", help="write a contact sheet PNG of every scene and exit")
     ap.add_argument("--at", type=float, default=0.6, help="time fraction for --sheet tiles")
+    ap.add_argument("--theme", default="paper", help="colour theme (doodle_themes.THEMES)")
+    ap.add_argument("--move", default="push", choices=CAMERA_MOVES)
     args = ap.parse_args()
+    from doodle_themes import pick_theme
+    theme = pick_theme(args.theme)
     if args.sheet:
-        contact_sheet(SCENE_FUNCS, args.sheet, at=args.at)
+        contact_sheet(SCENE_FUNCS, args.sheet, at=args.at, theme=theme)
         print(f"wrote {args.sheet}")
         return
     if not args.scene:
         ap.error("--scene or --sheet required")
-    render_clip(SCENE_FUNCS[args.scene], args.duration, args.out)
+    render_clip(SCENE_FUNCS[args.scene], args.duration, args.out, theme=theme, move=args.move)
     print(f"wrote {args.out}")
 
 

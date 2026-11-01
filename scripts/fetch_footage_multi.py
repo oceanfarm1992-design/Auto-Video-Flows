@@ -16,6 +16,7 @@ Usage:
     python scripts/fetch_footage_multi.py
     python scripts/fetch_footage_multi.py --force-source animate
     python scripts/fetch_footage_multi.py --force-source doodle   # stick-man / doodle scenes
+    python scripts/fetch_footage_multi.py --force-source mix      # doodle + framed stock + annotated stock
 """
 import argparse
 import json
@@ -24,6 +25,7 @@ import random
 import re
 import subprocess
 import sys
+import zlib
 from pathlib import Path
 
 import requests
@@ -170,12 +172,14 @@ def generate_anim(query: str, dest: str, duration: float,
 
 
 def generate_doodle(segment: dict, dest: str, duration: float, idx: int, used_scenes: list,
-                    start_s: float = 0.0) -> dict:
+                    start_s: float = 0.0, style: dict | None = None) -> dict:
     """Render a doodle / stick-man scene for this segment (doodle_engine.py). Needs no
     network and no stock library. Uses the scene id the script writer picked, else a
-    keyword match on the narration; never repeats a scene within one video."""
+    keyword match on the narration; never repeats a scene within one video.
+    style = {"theme": Theme, "move": camera move} for this video/beat."""
     from doodle_engine import render_clip  # local import: pulls in Pillow/numpy
     from doodle_scenes import SCENE_FUNCS, draw_label, pick_scene
+    style = style or {}
     scene_id = segment.get("scene")
     if scene_id not in SCENE_FUNCS or scene_id in used_scenes:
         scene_id = pick_scene(segment.get("text", ""), used_scenes)
@@ -187,9 +191,55 @@ def generate_doodle(segment: dict, dest: str, duration: float, idx: int, used_sc
         if start_s + t > HOOK_CARD_SECONDS + 0.3:      # the hook card owns the top of the screen until then
             draw_label(canvas, label, t, dur)
 
-    render_clip(scene, duration + 1.0, dest, seed=idx + 1)
+    render_clip(scene, duration + 1.0, dest, seed=idx + 1,
+                theme=style.get("theme"), move=style.get("move", "push"))
     return {"source": "doodle", "query": scene_id, "type": "video",
             "resolution": "1080x1920", "license": "Generated doodle animation"}
+
+
+STOCK_SOURCES = [("pexels_video", pexels_video, "mp4"), ("pixabay_video", pixabay_video, "mp4"),
+                 ("pexels_photo", pexels_photo, "jpg"), ("pixabay_photo", pixabay_photo, "jpg")]
+
+
+def download_stock(idx: int, query: str, out_dir: str) -> tuple[str, bool, dict] | None:
+    """(path, is_photo, info) of the first stock clip/photo found for the query, else None."""
+    for source, fetch, ext in STOCK_SOURCES:
+        dest = os.path.join(out_dir, f"stock_{idx}.{ext}")
+        try:
+            info = fetch(query, dest)
+        except Exception as e:  # noqa: BLE001  a bad API response just means: try the next library
+            print(f"  [{source}] failed: {e}", file=sys.stderr)
+            info = None
+        if info and os.path.exists(dest) and os.path.getsize(dest) > 0:
+            return dest, ext == "jpg", info
+    return None
+
+
+def mix_segment(idx: int, segment: dict, duration: float, out_dir: str, query: str, layout: str,
+                style: dict, used_scenes: list, start_s: float) -> dict:
+    """One beat of a "mix" video: a doodle scene, the stock clip inside a drawn frame, or the
+    stock clip with marker doodles over it (doodle_mix.py). Falls back to a doodle whenever no
+    stock is found or compositing fails, so a beat never fails the run."""
+    from doodle_mix import render_annotated, render_framed  # local import: pulls in Pillow/numpy
+    dest = os.path.join(out_dir, f"footage_{idx}.mp4")
+    if layout != "doodle":
+        stock = download_stock(idx, query, out_dir)
+        if stock:
+            path, is_photo, info = stock
+            try:
+                if layout == "framed":
+                    extra = render_framed(path, is_photo, dest, duration, segment, style["theme"],
+                                          idx + 1, start_s, style.get("move", "push"))
+                else:
+                    extra = render_annotated(path, is_photo, dest, duration, segment, idx + 1, start_s)
+                return {**info, **extra, "source": f"mix_{layout}+{info['source']}", "type": "video",
+                        "file": dest, "duration": duration, "query": query}
+            except Exception as e:  # noqa: BLE001  compositing problem: fall back to a doodle
+                print(f"  segment {idx}: {layout} compositing failed ({e}); using a doodle", file=sys.stderr)
+        else:
+            print(f"  segment {idx}: no stock for '{query}'; using a doodle")
+    info = generate_doodle(segment, dest, duration, idx, used_scenes, start_s, style)
+    return {**info, "layout": "doodle", "file": dest, "duration": duration, "query": query}
 
 
 # ── Per-segment fetcher ───────────────────────────────────────────────────────
@@ -251,7 +301,8 @@ def _clean_query(raw: str, field: str = "", name: str = "") -> str:
 def fetch_segment(idx: int, segment: dict, duration: float,
                   out_dir: str, cfg: dict, force_source: str | None,
                   field: str = "", name: str = "",
-                  used_scenes: list | None = None, start_s: float = 0.0) -> dict:
+                  used_scenes: list | None = None, start_s: float = 0.0,
+                  style: dict | None = None) -> dict:
     used_scenes = used_scenes if used_scenes is not None else []
     query = _clean_query(segment.get("footage_query", "cinematic nature"), field, name)
     want_photo = segment.get("media_type") == "photo" and not force_source
@@ -284,7 +335,7 @@ def fetch_segment(idx: int, segment: dict, duration: float,
                 if info:
                     dest = photo_dest
             elif source == "doodle":
-                info = generate_doodle(segment, vid_dest, duration, idx, used_scenes, start_s)
+                info = generate_doodle(segment, vid_dest, duration, idx, used_scenes, start_s, style)
                 dest = vid_dest
             elif source == "animate":
                 seed = sum(ord(c) for c in query) + idx
@@ -332,7 +383,10 @@ def main():
                     help="Shortest clip to fetch; lower it for many-beat scripts (default %(default)s).")
     ap.add_argument("--force-source", default=None,
                     choices=["pexels_video", "pixabay_video",
-                             "pexels_photo", "pixabay_photo", "animate", "doodle"])
+                             "pexels_photo", "pixabay_photo", "animate", "doodle", "mix"],
+                    help="mix = doodle scenes, framed stock and annotated stock, alternating per beat")
+    ap.add_argument("--theme", default=os.environ.get("DOODLE_THEME") or None,
+                    help="doodle colour theme; default rotates daily (doodle_themes.py)")
     args = ap.parse_args()
 
     with open(args.script, encoding="utf-8") as f:
@@ -371,8 +425,25 @@ def main():
     manifest = []
     used_scenes: list = []
     start_s = 0.0
+    styles = [None] * len(segments)
+    layouts = None
+    if args.force_source in ("doodle", "mix"):
+        from doodle_mix import plan_layouts, plan_moves
+        from doodle_themes import pick_theme
+        seed = zlib.crc32(str(script.get("title", "")).encode("utf-8"))
+        theme = pick_theme(args.theme)
+        styles = [{"theme": theme, "move": m} for m in plan_moves(len(segments), seed)]
+        if args.force_source == "mix":
+            layouts = plan_layouts(len(segments), seed)
+        print(f"[fetch_footage_multi] theme={theme.name} layouts={layouts or 'doodle'}")
     for i, (seg, dur) in enumerate(zip(segments, durations)):
-        info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name, used_scenes, start_s)
+        if layouts:
+            query = _clean_query(seg.get("footage_query", "cinematic nature"), field, name)
+            info = mix_segment(i, seg, dur, args.out, query, layouts[i], styles[i], used_scenes, start_s)
+            print(f"  segment {i}: {info['source']} → {info['file']} ({dur:.1f}s)")
+        else:
+            info = fetch_segment(i, seg, dur, args.out, cfg, args.force_source, field, name, used_scenes,
+                                 start_s, styles[i])
         start_s += dur
         print(f"[fetch_footage_multi] segment {i+1}/{len(segments)}: "
               f"'{seg.get('footage_query', '')}' -> query='{info['query']}' ~{dur:.1f}s")
