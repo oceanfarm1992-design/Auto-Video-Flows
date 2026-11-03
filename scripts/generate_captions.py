@@ -94,7 +94,7 @@ def _group_words(words: list[tuple[str, float, float]]) -> list[list[tuple[str, 
     return groups
 
 
-def words_to_ass(words: list[tuple[str, float, float]]) -> str:
+def words_to_ass(words: list[tuple[str, float, float]], hilite: str = HILITE) -> str:
     """words = (text, start, end) in seconds. One event per word: the whole group is on
     screen and the active word is highlighted and enlarged."""
     events = []
@@ -107,7 +107,7 @@ def words_to_ass(words: list[tuple[str, float, float]]) -> str:
             for j, (text, _, _) in enumerate(group):
                 t = text.strip().upper().replace("{", "(").replace("}", ")")
                 if j == i:
-                    parts.append(rf"{{\c{HILITE}\fscx114\fscy114}}{t}{{\r}}")
+                    parts.append(rf"{{\c{hilite}\fscx114\fscy114}}{t}{{\r}}")
                 else:
                     parts.append(t)
             events.append(f"Dialogue: 0,{fmt_ass_ts(start)},{fmt_ass_ts(max(nxt, start + 0.05))},Cap,,0,0,0,,{' '.join(parts)}")
@@ -180,6 +180,24 @@ def estimated_srt(script_txt: str, audio_path: str,
     return cues_to_srt(cues), timed
 
 
+def timeline_words(timeline_path: str) -> tuple[str, list]:
+    """Offline fallback for skits: spread each line's words across that line's own
+    measured span (build/skit_timeline.json), so pauses between speakers stay in sync."""
+    with open(timeline_path, encoding="utf-8") as f:
+        lines = json.load(f)["lines"]
+    timed, cues = [], []
+    for item in lines:
+        words = item["line"].split()
+        if not words:
+            continue
+        per = (item["end"] - item["start"]) / len(words)
+        for k, w in enumerate(words):
+            timed.append((w, item["start"] + k * per, item["start"] + (k + 1) * per))
+        cues.append((item["start"], item["end"], item["line"]))
+    print(f"[generate_captions] timeline: {len(timed)} words over {len(cues)} lines")
+    return cues_to_srt(cues), timed
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -191,6 +209,10 @@ def main():
     ap.add_argument("--words-per-cue",type=int, default=4)
     ap.add_argument("--no-whisper",   action="store_true",
                     help="Skip Whisper API and use word-count estimation.")
+    ap.add_argument("--timeline", default=None,
+                    help="build/skit_timeline.json: per-line timing used when Whisper is unavailable.")
+    ap.add_argument("--highlight", default=None,
+                    help="ASS BGR colour of the active word, e.g. '&H0033E633&' (green). Default warm yellow.")
     args = ap.parse_args()
 
     wps = 2.6
@@ -207,6 +229,9 @@ def main():
         except Exception as e:
             print(f"[generate_captions] Whisper failed ({e}), using estimation fallback")
 
+    if srt is None and args.timeline and os.path.exists(args.timeline):
+        srt, timed = timeline_words(args.timeline)
+
     if srt is None:
         script_txt = Path(args.script).read_text(encoding="utf-8")
         srt, timed = estimated_srt(script_txt, args.audio, args.words_per_cue, wps)
@@ -214,7 +239,7 @@ def main():
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     Path(args.out).write_text(srt, encoding="utf-8")
     ass_path = os.path.splitext(args.out)[0] + ".ass"
-    Path(ass_path).write_text(words_to_ass(timed), encoding="utf-8")
+    Path(ass_path).write_text(words_to_ass(timed, args.highlight or HILITE), encoding="utf-8")
     print(f"[generate_captions] wrote {args.out} and {ass_path}")
 
 

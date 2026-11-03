@@ -182,3 +182,47 @@ store. Force a specific flow (e.g. for testing) with
 `daily-short.yml` (the original historical/trending-figure series) is **no longer run
 automatically**. The workflow file is kept for manual runs only:
 `gh workflow run daily-short.yml -f skip_post=true`.
+
+## Cartoon-skit format (`format: skit`)
+
+A second format for both series, built from an analysis of top-performing AI cartoon skits on TikTok.
+In those videos the "3D-looking" depth comes from flat 2D backgrounds painted in perspective, animated by an
+image-to-video model with a slow push-in. They are cut on every line of dialogue, and every character wears a
+cap with their name. This pipeline produces the same kind of video for our niches. A recurring cast acts out
+each topic in 10-14 shots, and the narrator (the channel's cloned voice) closes with the psychology insight.
+
+| Stage | Script | What it does |
+|---|---|---|
+| 1 | `generate_skit.py` | GPT writes the skit: hook line in the middle of a conflict, setup, escalation, reveal, payoff, then the narrator's insight. Each shot gets a speaker, line, acting note, location, visible characters, framing, a drawable `action` and a `motion`. A validator rejects bad drafts (unknown cast or location, digits, banned filler, the wrong length, the narrator not last) and asks for a rewrite, up to 3 drafts. |
+| 1.5 | `factcheck_script.py` | Same fact-check as before. The lines are what get voiced, so any verdict other than pass, skip or error writes a fresh skit on a new topic once. |
+| 2 | `generate_dialogue_tts.py` | One voice per character, from `config/niches/<niche>.json → skit.cast.<id>.voice`. Engines in order: OpenAI `gpt-4o-mini-tts` with the line's acting direction, then Kokoro, then espeak. The narrator tries the cloned StyleTTS2 voice first. Writes `build/voice.wav` and `build/skit_timeline.json` (exact start and end of every line). |
+| 3 | `generate_captions.py --timeline … --highlight …` | Word-by-word captions with the active word in green. Whisper when available, otherwise each line's words spread over that line's own timing. |
+| 4 | `generate_keyframes.py` | Designs each character sheet and location plate **once** and caches it in `assets/skit/<niche>/` (committed by the workflow), then draws one keyframe per shot using those images as references, which keeps the cast consistent. Provider: `openai` (gpt-image, default), `fal`, or `none`. |
+| 5 | `animate_shots.py` | Image-to-video on **fal.ai** (Kling by default; any fal image-to-video model via `config/skit.json → video.fal_model`). All shots go to the queue at once. Without `FAL_KEY` it falls back to a free local push-in on the keyframe. A shot with no keyframe is drawn by the doodle engine. |
+| 6 | `assemble_skit.py` | Hard cuts on each line, conformed to **24 fps** (no 24→30 duplicate-frame judder), vignette, light grain, hook title, captions, CTA, and voice over a quiet music bed. Writes `build/final.mp4`. |
+
+Posting, release upload and history logging are the same steps as the narrated format.
+
+### Turning it on
+
+1. **Optional but recommended:** add the `FAL_KEY` secret (https://fal.ai, pay per clip) for real character
+   animation. Without it, skits use the free push-in on AI keyframes.
+2. **Design the cast first:** run the **skit-cast** workflow (Actions → skit-cast → niche) and review the
+   images in the run's artifact. Re-run it with `commit=true` when you like them. To redesign one character,
+   delete its PNG under `assets/skit/<niche>/characters/` and run it again. The cast's looks, cap names and
+   voices are in `config/niches/<niche>.json → skit`.
+3. **Test a skit without posting:** `gh workflow run men-short.yml -f format=skit -f skip_post=true`
+   (the run uploads the keyframes and script as an artifact).
+4. **Switch a series over:** set `"format": "skit"` in `config/niches/<niche>.json`. The daily rotation
+   then posts skits for that series. Or keep the narrated format and run skits on demand with `-f format=skit`.
+
+Repo variables (Settings → Variables) `IMAGE_PROVIDER` (`openai` | `fal` | `none`) and `VIDEO_PROVIDER`
+(`fal` | `local`) override `config/skit.json` without a commit.
+
+**Cost per skit** is roughly 12 images plus 12 short video clips. Check the current gpt-image and fal model
+prices before switching a daily series over. `IMAGE_PROVIDER=none` + `VIDEO_PROVIDER=local` runs a skit with
+zero paid image or video calls (doodle visuals).
+
+Offline test: `python tests/test_skit.py`. Full offline dry run (no keys): write `build/script.json` with
+`generate_skit.normalise(...)`, then `generate_dialogue_tts.py --engines silent`,
+`IMAGE_PROVIDER=none generate_keyframes.py`, `VIDEO_PROVIDER=local animate_shots.py`, `assemble_skit.py`.
