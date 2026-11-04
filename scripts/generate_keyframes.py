@@ -287,7 +287,11 @@ def make_mouth_variant(provider, niche: dict, job: dict, closed: str, out_dir: P
         base = Image.open(closed).convert("RGB")
         boxes = detect_mouths(base, aligned_open(base, Image.open(dest)), len(job["characters"]))
         mouths = assign_mouths(boxes, job["characters"], base.width)
-        print(f"[keyframes] {job['key']}: mouths found for {sorted(mouths) or 'nobody'}")
+        from mouth_flaps import debug_overlay
+        debug_overlay(base, mouths, str(out_dir / f"{job['key']}_mouths.jpg"))
+        missing = [c for c in job["characters"] if c not in mouths]
+        print(f"[keyframes] {job['key']}: mouths found for {sorted(mouths) or 'nobody'}"
+              + (f"; not found: {missing}" if missing else ""))
         return {"open_file": str(dest), "mouths": mouths}
     except Exception as exc:  # noqa: BLE001 - lip sync is an extra; the still picture still works
         print(f"[keyframes] {job['key']}: no mouth variant ({exc})", file=sys.stderr)

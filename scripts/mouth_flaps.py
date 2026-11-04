@@ -77,36 +77,74 @@ def _components(mask: np.ndarray) -> list[tuple[int, int, int, int, int]]:
     return out
 
 
-def detect_mouths(closed: Image.Image, opened: Image.Image, n_chars: int,
-                  drop: float = 40.0, scale: int = 4) -> list[list[int]]:
-    """Mouth boxes [x0, y0, x1, y1] (closed-image pixels), ordered left to right; at most
-    n_chars. Works on a 1/scale copy for speed; boxes are padded to include lips and chin."""
-    w, h = closed.size
-    small = (w // scale, h // scale)
-    a = closed.resize(small, Image.BILINEAR).filter(ImageFilter.GaussianBlur(1))
-    b = opened.resize(small, Image.BILINEAR).filter(ImageFilter.GaussianBlur(1))
-    darker = (_luma(a) - _luma(b)) > drop                       # the open mouth is a dark hole
-    m = Image.fromarray((darker * 255).astype(np.uint8))
-    m = m.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))   # drop thin shifted lines
-    mask = np.asarray(m) > 0
+def _change_mask(closed: Image.Image, opened: Image.Image, scale: int, thresh: float) -> np.ndarray:
+    """Pixels whose colour changed strongly in either direction (an open mouth can be darker than
+    skin, or lighter than a dark beard: white teeth, red tongue), thin shifted lines removed."""
+    small = (closed.width // scale, closed.height // scale)
+    a = np.asarray(closed.resize(small, Image.BILINEAR).filter(ImageFilter.GaussianBlur(1)), dtype=np.float32)
+    b = np.asarray(opened.resize(small, Image.BILINEAR).filter(ImageFilter.GaussianBlur(1)), dtype=np.float32)
+    changed = np.abs(a - b).max(axis=2) > thresh
+    m = Image.fromarray((changed * 255).astype(np.uint8))
+    m = m.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    return np.asarray(m) > 0
+
+
+def _mouth_blob(mask: np.ndarray, x_lo: int, x_hi: int):
+    """Best mouth-like region inside columns [x_lo, x_hi): compact, small, in the face band."""
     sh, sw = mask.shape
-    cands = []
-    for area, y0, x0, y1, x1 in _components(mask):
+    sub = np.zeros_like(mask)
+    sub[:, x_lo:x_hi] = mask[:, x_lo:x_hi]
+    best = None
+    for area, y0, x0, y1, x1 in _components(sub):
         bw, bh = x1 - x0 + 1, y1 - y0 + 1
         cy = (y0 + y1) / 2 / sh
         if not (0.00002 * sw * sh <= area <= 0.006 * sw * sh):
             continue
         if not (0.10 <= cy <= 0.80) or not (0.5 <= bw / bh <= 5.0):
             continue
-        cands.append((area, x0, y0, x1, y1))
-    cands = sorted(cands, reverse=True)[:max(1, n_chars)]
+        fill = area / (bw * bh)                       # a mouth is a filled blob, not an outline
+        score = area * (0.5 + fill)
+        if best is None or score > best[0]:
+            best = (score, x0, y0, x1, y1)
+    return best
+
+
+def detect_mouths(closed: Image.Image, opened: Image.Image, n_chars: int,
+                  thresh: float = 45.0, scale: int = 4) -> list[list[int]]:
+    """Mouth boxes [x0, y0, x1, y1] (closed-image pixels), left to right, one per character found.
+    Characters stand in n_chars equal columns (left-to-right order is pinned in the prompt); each
+    column is searched on its own so one big change can't hide another character's mouth."""
+    w, h = closed.size
+    mask = _change_mask(closed, opened, scale, thresh)
+    sh, sw = mask.shape
+    n = max(1, n_chars)
     boxes = []
-    for _, x0, y0, x1, y1 in sorted(cands, key=lambda c: c[1]):
+    for k in range(n):
+        lo = int(max(0, (k - 0.15) * sw / n))
+        hi = int(min(sw, (k + 1.15) * sw / n))
+        blob = _mouth_blob(mask, lo, hi)
+        if not blob:
+            continue
+        _, x0, y0, x1, y1 = blob
         bw, bh = x1 - x0 + 1, y1 - y0 + 1
         pad_x, pad_y = bw * 0.6 + 2, bh * 0.8 + 2
-        boxes.append([int(max(0, (x0 - pad_x) * scale)), int(max(0, (y0 - pad_y) * scale)),
-                      int(min(w, (x1 + 1 + pad_x) * scale)), int(min(h, (y1 + 1 + pad_y) * scale))])
+        box = [int(max(0, (x0 - pad_x) * scale)), int(max(0, (y0 - pad_y) * scale)),
+               int(min(w, (x1 + 1 + pad_x) * scale)), int(min(h, (y1 + 1 + pad_y) * scale))]
+        if not boxes or box != boxes[-1]:
+            boxes.append(box)
     return boxes
+
+
+def debug_overlay(closed: Image.Image, boxes: dict, dest: str) -> None:
+    """The keyframe with each detected mouth outlined and labelled (saved for the run preview)."""
+    from PIL import ImageDraw
+    im = closed.convert("RGB").copy()
+    d = ImageDraw.Draw(im)
+    for name, (x0, y0, x1, y1) in boxes.items():
+        d.rectangle([x0, y0, x1, y1], outline=(0, 255, 0), width=6)
+        d.text((x0, max(0, y0 - 24)), name, fill=(0, 255, 0))
+    im.thumbnail((720, 1280))
+    im.save(dest, "JPEG", quality=85)
 
 
 def assign_mouths(boxes: list[list[int]], chars: list[str], width: int) -> dict[str, list[int]]:

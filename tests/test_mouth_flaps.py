@@ -93,4 +93,32 @@ with tempfile.TemporaryDirectory() as tmp:
     check(f"talking clip renders 1080x1920 with open-mouth frames ({probe}, open={n_open})",
           probe.startswith("1080,1920") and n_open > 0)
 
+
+
+# a bearded character: the open mouth is NOT darker than the beard (teeth/tongue are lighter)
+def bearded(open_mouth: bool, shift=(0, 0)) -> Image.Image:
+    im = picture(False)
+    d = ImageDraw.Draw(im)
+    fx, fy = FACES[0]
+    d.ellipse([fx - 100, fy + 10, fx + 100, fy + 125], fill=(55, 40, 35))      # dark beard over the jaw
+    if open_mouth:
+        d.ellipse([fx - 38, fy + 40, fx + 38, fy + 92], fill=(170, 60, 70), outline=(20, 20, 20), width=5)
+        d.rectangle([fx - 28, fy + 44, fx + 28, fy + 58], fill=(245, 245, 240))  # teeth
+        fx2, fy2 = FACES[1]
+        d.ellipse([fx2 - 38, fy2 + 35, fx2 + 38, fy2 + 85], fill=(60, 15, 20), outline=(20, 20, 20), width=6)
+    a = np.roll(np.asarray(im), shift, axis=(0, 1))
+    return Image.fromarray(a)
+
+
+bc, bo = bearded(False), bearded(True, shift=(3, 2))
+bboxes = mf.detect_mouths(bc, mf.aligned_open(bc, bo), 2)
+bm = mf.assign_mouths(bboxes, ["the_provider", "the_wife"], W)
+check("bearded character's mouth is found (teeth in a dark beard)",
+      "the_provider" in bm and contains(bm["the_provider"], 330, 830))
+check("...and the other character is still found", "the_wife" in bm and contains(bm["the_wife"], 820, 845))
+with tempfile.TemporaryDirectory() as tmp:
+    out = os.path.join(tmp, "dbg.jpg")
+    mf.debug_overlay(bc, bm, out)
+    check("debug overlay saved for the run preview", os.path.getsize(out) > 1000)
+
 sys.exit(1 if FAILED else 0)
