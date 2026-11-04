@@ -38,6 +38,11 @@ def load_cfg() -> dict:
     return {}
 
 
+def is_free_id(model: str) -> bool:
+    """Free-only guard: OpenRouter bills nothing for ':free' variants and the openrouter/free router."""
+    return model.endswith(":free") or model == "openrouter/free"
+
+
 def parse_json(text: str) -> dict:
     """JSON object from a model reply that may wrap it in prose or ``` fences."""
     text = (text or "").strip()
@@ -95,7 +100,10 @@ def openrouter_candidates(cfg: dict, key: str) -> list[str]:
     out = preferred + ranked[: int(cfg.get("max_discovered", 3))]
     if cfg.get("use_free_router", True):
         out.append("openrouter/free")
-    return out
+    skipped = [m for m in out if not is_free_id(m)]
+    if skipped:
+        print(f"[llm] skipping non-free model id(s) {skipped}: only ':free' models are allowed", file=sys.stderr)
+    return [m for m in out if is_free_id(m)]
 
 
 def _openrouter_call(key: str, model: str, system: str, prompt: str, max_tokens: int) -> dict:
@@ -130,7 +138,15 @@ def chat_json(system: str, prompt: str, openai_model: str = "gpt-4.1", max_token
             _OR_STATE["candidates"] = openrouter_candidates(cfg, key)
         order = ([_OR_STATE["ok"]] if _OR_STATE.get("ok") else []) + \
             [m for m in _OR_STATE["candidates"] if m != _OR_STATE.get("ok")]
+        cap = int(cfg.get("max_requests_per_run", 8))
         for model in order[: int(cfg.get("max_attempts", 4))]:
+            if not is_free_id(model):
+                continue
+            if _OR_STATE.get("requests", 0) >= cap:
+                print(f"[llm] OpenRouter free budget for this run used ({cap} requests); using OpenAI")
+                _OR_STATE["dead"] = True
+                break
+            _OR_STATE["requests"] = _OR_STATE.get("requests", 0) + 1
             try:
                 out = _openrouter_call(key, model, system, prompt, max_tokens)
                 _OR_STATE["ok"] = model
@@ -142,7 +158,8 @@ def chat_json(system: str, prompt: str, openai_model: str = "gpt-4.1", max_token
                     _OR_STATE["dead"] = True      # daily/minute cap hit: don't burn time on others
                     break
         else:
-            _OR_STATE["dead"] = True
+            if not _OR_STATE.get("ok"):
+                _OR_STATE["dead"] = True
     if not os.environ.get("OPENAI_API_KEY"):
         raise SystemExit("No working OpenRouter model and OPENAI_API_KEY is not set.")
     from openai import OpenAI

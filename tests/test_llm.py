@@ -78,4 +78,34 @@ llm._openrouter_call = lambda *a: (_ for _ in ()).throw(AssertionError("must not
 _, used = llm.chat_json("s", "p", task="narrated_script")
 check("tasks not opted in never use OpenRouter (live narrated series stays on gpt-4.1)", used == "openai:gpt-4.1")
 
+check("free-only guard", llm.is_free_id("x/y:free") and llm.is_free_id("openrouter/free")
+      and not llm.is_free_id("openai/gpt-5"))
+
+# a paid id in the candidates is never called
+out, used, calls = None, None, None
+llm._OR_STATE.clear()
+seen = []
+llm._openrouter_call = lambda key, model, *a: (seen.append(model), {"ok": 1})[1]
+llm.openrouter_candidates = lambda cfg, key: ["openai/gpt-5", "m1:free"]
+llm.load_cfg = lambda: {"use_openrouter": True, "openrouter_tasks": ["skit_script"]}
+_, used = llm.chat_json("s", "p", task="skit_script")
+check("paid model ids are never called", seen == ["m1:free"] and used == "openrouter:m1:free")
+
+# per-run request cap
+llm._OR_STATE.clear()
+n = {"k": 0}
+
+
+def always_fail(*a):
+    n["k"] += 1
+    raise RuntimeError("bad json")
+
+
+llm._openrouter_call = always_fail
+llm.openrouter_candidates = lambda cfg, key: [f"m{i}:free" for i in range(10)]
+llm.load_cfg = lambda: {"use_openrouter": True, "openrouter_tasks": ["skit_script"], "max_attempts": 10,
+                        "max_requests_per_run": 3}
+_, used = llm.chat_json("s", "p", task="skit_script")
+check("per-run free request cap is enforced", n["k"] == 3 and used == "openai:gpt-4.1")
+
 sys.exit(1 if FAILED else 0)
