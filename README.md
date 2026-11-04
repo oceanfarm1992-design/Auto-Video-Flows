@@ -248,6 +248,18 @@ rewritten for this pipeline:
 - **Downloaded AI clips are validated** (`animate_shots.valid_video`): every fal.ai clip is fully decoded before
   use. A truncated or empty clip is downloaded again, then replaced by the free push-in if still broken.
 
+### Sad piano music
+
+Both formats now use a **sad solo-piano piece composed and synthesized for each run**
+(`scripts/generate_piano.py`, called by `generate_music.py`). It needs no samples and no API, and has no
+copyright issues. Each note is synthesized as a piano string with inharmonic partials, two slightly detuned
+strings, a hammer attack, pedal sustain and room reverb. The music is in a minor key at 52–62 BPM, using sad
+progressions (i–VI–III–VII, i–VI–iv–V…): a broken-chord left hand, a repeated and varied right-hand motif, an
+intro, the theme an octave higher, and an outro ending on the tonic. The seed follows the GitHub run, so every
+video gets a different piece. In skits the piano ducks under the dialogue and swells back in the pauses.
+Switch back to the old ambient pad with `config/music.json → "style": "pad"`. Tracks in `assets/music/`
+still win over both.
+
 ### Mouth flaps on AI pictures
 
 With `images.lipsync` on (default), every AI keyframe gets one extra low-quality image edit with everyone's

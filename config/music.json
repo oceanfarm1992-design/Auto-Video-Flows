@@ -1,0 +1,5 @@
+{
+  "_comment": "Background music for both formats (scripts/generate_music.py). style: sad_piano = a new sad solo-piano piece composed and synthesized for every run (scripts/generate_piano.py, no samples, no copyright); pad = the old ambient ffmpeg pad. Tracks dropped into assets/music/ still win over both.",
+  "style": "sad_piano",
+  "duration": 95
+}

@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """
-Generate a cinematic motivational music bed with ffmpeg.
+Background music for every video.
+
+style "sad_piano" (default, config/music.json): a new sad solo-piano piece composed and
+synthesized for each run by generate_piano.py. Falls back to the pad below if it fails.
+
+style "pad": a cinematic music bed made with ffmpeg (the original generator below).
 
 Produces a deep, powerful background track with dramatic swell using only
 universally supported ffmpeg filters (no tremolo/equalizer expressions).
@@ -75,12 +80,42 @@ def build_filter(freqs: list, duration: float) -> str:
     return ";".join(chains) + ";" + mix
 
 
+def music_config(path: str = "config/music.json") -> dict:
+    import json
+    try:
+        with open(path, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def run_seed() -> int:
+    """A different piece per run (GitHub run number), else per day."""
+    rid = os.environ.get("GITHUB_RUN_ID") or os.environ.get("GITHUB_RUN_NUMBER")
+    if rid and rid.isdigit():
+        return int(rid) % 1_000_000_007
+    return int(datetime.date.today().strftime("%Y%m%d"))
+
+
 def main():
+    cfg = music_config()
     ap = argparse.ArgumentParser()
     ap.add_argument("--out",      default="build/music.mp3")
-    ap.add_argument("--duration", type=float, default=90.0)
+    ap.add_argument("--duration", type=float, default=float(cfg.get("duration", 95.0)))
     ap.add_argument("--mood",     type=int,   default=None)
+    ap.add_argument("--style",    choices=["sad_piano", "pad"], default=cfg.get("style", "sad_piano"))
+    ap.add_argument("--seed",     type=int,   default=None)
     args = ap.parse_args()
+
+    if args.style == "sad_piano":
+        try:
+            import generate_piano as gp
+            seed = args.seed if args.seed is not None else run_seed()
+            sys.argv = ["generate_piano.py", "--out", args.out, "--duration", str(args.duration), "--seed", str(seed)]
+            gp.main()
+            return
+        except Exception as exc:  # noqa: BLE001 - never lose the music bed: fall back to the pad
+            print(f"[generate_music] sad piano failed ({exc}); using the ambient pad", file=sys.stderr)
 
     if args.mood is not None:
         chord = CHORDS[args.mood % len(CHORDS)]
