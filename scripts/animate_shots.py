@@ -115,6 +115,24 @@ def doodle_clip(shot: dict, dest: str, duration: float, idx: int, used: list) ->
     generate_doodle(seg, dest, duration, idx, used, start_s=99.0)
 
 
+def valid_video(path: str, min_seconds: float = 0.5) -> bool:
+    """Fully decode the file and check it has a real duration. A provider can return a
+    truncated or empty mp4 that would crash or blank the edit much later. (Same idea as
+    MoneyPrinterTurbo's material validation before a clip is used.)"""
+    if not os.path.exists(path) or os.path.getsize(path) < 1024:
+        return False
+    probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+                           capture_output=True, text=True)
+    try:
+        if float(probe.stdout.strip()) < min_seconds:
+            return False
+    except ValueError:
+        return False
+    decode = subprocess.run(["ffmpeg", "-v", "error", "-i", path, "-f", "null", "-"],
+                            capture_output=True, text=True)
+    return decode.returncode == 0 and not decode.stderr.strip()
+
+
 def download(url: str, dest: str) -> None:
     with requests.get(url, stream=True, timeout=300) as r:
         r.raise_for_status()
@@ -166,11 +184,15 @@ def main() -> None:
         print(f"[animate] submitted {len(jobs)} shot(s) to {vcfg['fal_model']}")
         for i, url in fal_wait(key, jobs, int(vcfg.get("timeout_s", 900))).items():
             dest = str(out / f"shot_{i:02d}.mp4")
-            try:
-                download(url, dest)
-                results[i] = (dest, "fal")
-            except Exception as exc:  # noqa: BLE001
-                print(f"[animate] shot {i:02d}: download failed ({exc})", file=sys.stderr)
+            for attempt in (1, 2):
+                try:
+                    download(url, dest)
+                    if valid_video(dest):
+                        results[i] = (dest, "fal")
+                        break
+                    print(f"[animate] shot {i:02d}: downloaded clip is broken (try {attempt})", file=sys.stderr)
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[animate] shot {i:02d}: download failed ({exc})", file=sys.stderr)
 
     used_doodles: list = []
     for i, shot in enumerate(data["shots"]):

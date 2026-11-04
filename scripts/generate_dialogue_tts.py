@@ -3,7 +3,7 @@
 Stage 2 (skit format): voice every line with its character's own voice.
 
 Each character in config/niches/<niche>.json -> skit.cast.<id>.voice names a voice per
-engine (openai / kokoro / espeak). Lines are synthesised one by one, trying the engines
+engine (openai / edge / kokoro / espeak). Lines are synthesised one by one, trying the engines
 from config/skit.json -> tts.engines in order; the narrator tries the channel's cloned
 voice (StyleTTS2, needs VOICE_REPO_PAT) first. OpenAI's gpt-4o-mini-tts also receives
 the line's acting direction ("annoyed, sharp"), which is what makes skits feel acted
@@ -13,7 +13,10 @@ Every line is converted to 24 kHz mono and joined with a short gap. The exact st
 of every line is written to build/skit_timeline.json; the editor cuts the picture on
 those times, so each shot lasts exactly as long as its line.
 
-Output: build/voice.wav, build/skit_timeline.json, build/lines/line_NN.wav
+Edge TTS (free Microsoft neural voices) also reports when every word is spoken; those
+timings are written to build/word_timings.json so captions are exact without Whisper.
+
+Output: build/voice.wav, build/skit_timeline.json, build/word_timings.json, build/lines/line_NN.wav
 
 Usage:
     python scripts/generate_dialogue_tts.py --niche config/niches/men_psychology.json
@@ -33,6 +36,11 @@ from pathlib import Path
 from skit_common import cast_of, load_configs, load_script
 
 RATE = 24000
+# Engines that failed once in this run are skipped for the remaining lines: an unreachable
+# service (no network, rate limit, model that won't load) would otherwise cost its full
+# retry/timeout budget on every single line.
+_DEAD_ENGINES: set[str] = set()
+_RECOVERABLE = {"espeak", "silent"}
 
 
 def _to_pcm(src: str, dst: str) -> None:
@@ -61,13 +69,17 @@ def engines_for(char: dict, engines: list[str]) -> list[str]:
     return chain + [e for e in engines if e == "silent" or voice.get(e) or e == "espeak"]
 
 
-def synth_line(text: str, char: dict, emotion: str, raw: str, engines: list[str], tts_cfg: dict) -> str:
-    """Synthesize one line to `raw`; returns the engine that worked."""
+def synth_line(text: str, char: dict, emotion: str, raw: str, engines: list[str], tts_cfg: dict
+               ) -> tuple[str, list | None]:
+    """Synthesize one line to `raw`; returns (engine that worked, exact word timings or None)."""
     import generate_tts as gt  # local import: pulls requests/openai only when needed
     voice = char.get("voice", {})
     spoken = gt.soften_caps_for_speech(text)
     last = None
     for eng in engines_for(char, engines):
+        if eng in _DEAD_ENGINES:
+            continue
+        words = None
         try:
             if os.path.exists(raw):
                 os.remove(raw)
@@ -78,6 +90,10 @@ def synth_line(text: str, char: dict, emotion: str, raw: str, engines: list[str]
                          f"Deliver this line {emotion}. Natural, conversational, not theatrical."
                 gt.run_openai_tts(spoken, raw, tts_cfg.get("openai_model", "gpt-4o-mini-tts"),
                                   voice.get("openai", "onyx"), acting)
+            elif eng == "edge":
+                from tts_edge import synth_edge
+                words = synth_edge(spoken, raw, voice["edge"], voice.get("edge_rate", "+0%"),
+                                   voice.get("edge_pitch", "+0Hz"))
             elif eng == "kokoro":
                 gt.run_kokoro(spoken, raw, voice.get("kokoro", "am_fenrir"), "a")
             elif eng == "espeak":
@@ -86,11 +102,24 @@ def synth_line(text: str, char: dict, emotion: str, raw: str, engines: list[str]
             elif eng == "silent":
                 _silence(raw, max(0.8, len(spoken.split()) / 2.7))
             if os.path.exists(raw) and os.path.getsize(raw) > 100:
-                return eng
+                return eng, words
         except Exception as exc:  # noqa: BLE001 - try the next engine
             last = exc
             print(f"[dialogue_tts] {eng} failed: {type(exc).__name__}: {str(exc)[:200]}", file=sys.stderr)
+            if eng not in _RECOVERABLE:
+                _DEAD_ENGINES.add(eng)
+                print(f"[dialogue_tts] skipping {eng} for the rest of this run", file=sys.stderr)
     raise SystemExit(f"All TTS engines failed for line {text!r}. Last error: {last}")
+
+
+def line_words(line: str, words: list | None, start: float, dur: float) -> list[list]:
+    """Words of one line on the video's clock: the engine's own timings when it gave them
+    (edge), otherwise the line's words spread evenly across its measured length."""
+    if words:
+        return [[w, round(start + a, 3), round(start + min(b, dur), 3)] for w, a, b in words]
+    toks = line.split()
+    per = dur / max(1, len(toks))
+    return [[w, round(start + k * per, 3), round(start + (k + 1) * per, 3)] for k, w in enumerate(toks)]
 
 
 def concat(parts: list[str], out: str) -> None:
@@ -129,13 +158,17 @@ def main() -> None:
     _silence(tail_wav, tail)
 
     parts, timeline, t = [], [], 0.0
+    all_words: list[list] = []
+    exact = True
     for i, shot in enumerate(data["shots"]):
         char = cast.get(shot["speaker"], cast.get("narrator", {}))
         raw = str(lines_dir / f"raw_{i:02d}.wav")
         pcm = str(lines_dir / f"line_{i:02d}.wav")
-        eng = synth_line(shot["line"], char, shot.get("emotion", "naturally"), raw, engines, tts_cfg)
+        eng, words = synth_line(shot["line"], char, shot.get("emotion", "naturally"), raw, engines, tts_cfg)
         _to_pcm(raw, pcm)
         d = _duration(pcm)
+        all_words.extend(line_words(shot["line"], words, t, d))
+        exact = exact and bool(words)
         timeline.append({"index": i, "speaker": shot["speaker"], "line": shot["line"],
                          "start": round(t, 3), "end": round(t + d, 3), "engine": eng})
         print(f"[dialogue_tts] {i:02d} {shot['speaker']:<14} {d:4.1f}s ({eng}) {shot['line']}")
@@ -152,6 +185,8 @@ def main() -> None:
     for k, item in enumerate(timeline):
         item["shot_start"] = 0.0 if k == 0 else timeline[k]["start"]
         item["shot_end"] = timeline[k + 1]["start"] if k + 1 < len(timeline) else round(t, 3)
+    (out / "word_timings.json").write_text(json.dumps({"exact": exact, "words": all_words}, indent=1),
+                                           encoding="utf-8")
     (out / "skit_timeline.json").write_text(json.dumps({"duration": round(t, 3), "lines": timeline}, indent=2),
                                             encoding="utf-8")
     print(f"[dialogue_tts] wrote {out / 'voice.wav'} ({t:.1f}s, {len(timeline)} lines)")

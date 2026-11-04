@@ -223,6 +223,22 @@ Repo variables (Settings → Variables) `IMAGE_PROVIDER` (`openai` | `fal` | `no
 prices before switching a daily series over. `IMAGE_PROVIDER=none` + `VIDEO_PROVIDER=local` runs a skit with
 zero paid image or video calls (doodle visuals).
 
-Offline test: `python tests/test_skit.py`. Full offline dry run (no keys): write `build/script.json` with
+### Techniques adopted from MoneyPrinterTurbo
+
+Ideas taken from [MoneyPrinterTurbo](https://github.com/harry0703/MoneyPrinterTurbo) (MIT) and
+rewritten for this pipeline:
+
+- **Edge TTS** (`scripts/tts_edge.py`): free Microsoft neural voices, no key. Each skit character has its own
+  `edge` voice in the niche config, and `generate_tts.py` uses it after the cloned voice (`--engine edge` / `auto`).
+  It reports when every word is spoken, which is written to `build/word_timings.json`, so captions are exact
+  with no Whisper call. It is an unofficial endpoint, so after one failure the rest of the run skips it, and its
+  calls have a hard timeout (edge-tts's own `stream_sync()` can hang forever on a network error).
+- **Captions corrected against the script** (`generate_captions.align_to_script`): Whisper's timing is kept, but
+  the words shown are the script's. That fixes misheard names, digits for spelled-out numbers and dropped words.
+  A transcript that doesn't resemble the script is left alone.
+- **Downloaded AI clips are validated** (`animate_shots.valid_video`): every fal.ai clip is fully decoded before
+  use. A truncated or empty clip is downloaded again, then replaced by the free push-in if still broken.
+
+Offline test: `python tests/test_skit.py` and `python tests/test_edge_captions.py`. Full offline dry run (no keys): write `build/script.json` with
 `generate_skit.normalise(...)`, then `generate_dialogue_tts.py --engines silent`,
 `IMAGE_PROVIDER=none generate_keyframes.py`, `VIDEO_PROVIDER=local animate_shots.py`, `assemble_skit.py`.

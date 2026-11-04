@@ -27,37 +27,37 @@
         "label": "The Calm",
         "look": "a lean man in his early thirties with neat short black hair and a calm half-smile, wearing a fitted charcoal suit with an open-collar white shirt, black shoes, and a white baseball cap",
         "acting": "slow, quiet, unbothered, a hint of amusement; never raises his voice",
-        "voice": {"openai": "sage", "kokoro": "am_michael", "espeak": "en-us+m2"}
+        "voice": {"edge": "en-US-BrianNeural", "openai": "sage", "kokoro": "am_michael", "espeak": "en-us+m2"}
       },
       "the_loud": {
         "label": "The Loud",
         "look": "a stocky red-faced man in his forties with a thick neck and short ginger hair, a tight orange polo shirt, cargo shorts and sandals with socks, and a bright red baseball cap",
         "acting": "loud, pushy, easily rattled, overconfident",
-        "voice": {"openai": "ash", "kokoro": "am_adam", "espeak": "en-us+m7"}
+        "voice": {"edge": "en-US-GuyNeural", "openai": "ash", "kokoro": "am_adam", "espeak": "en-us+m7"}
       },
       "the_boss": {
         "label": "The Boss",
         "look": "a sharp woman in her fifties with a silver bob haircut and reading glasses, a navy blazer over a black turtleneck, grey trousers, and a navy baseball cap",
         "acting": "measured, testing, hard to impress",
-        "voice": {"openai": "shimmer", "kokoro": "af_sarah", "espeak": "en-us+f2"}
+        "voice": {"edge": "en-US-AriaNeural", "openai": "shimmer", "kokoro": "af_sarah", "espeak": "en-us+f2"}
       },
       "the_rookie": {
         "label": "The Rookie",
         "look": "a nervous young man in his early twenties with floppy blond hair, an oversized blue shirt with a lanyard badge, beige chinos and white sneakers, and a light blue baseball cap",
         "acting": "eager, anxious, asks the questions the viewer is thinking",
-        "voice": {"openai": "verse", "kokoro": "am_puck", "espeak": "en-us+m5"}
+        "voice": {"edge": "en-US-SteffanNeural", "openai": "verse", "kokoro": "am_puck", "espeak": "en-us+m5"}
       },
       "the_stranger": {
         "label": "The Stranger",
         "look": "a smooth-talking man in his forties with slicked-back hair and a thin moustache, a shiny purple suit, gold watch and pointed shoes, and a purple baseball cap",
         "acting": "charming, manipulative, smiling too much",
-        "voice": {"openai": "ballad", "kokoro": "bm_george", "espeak": "en-gb+m3"}
+        "voice": {"edge": "en-GB-RyanNeural", "openai": "ballad", "kokoro": "bm_george", "espeak": "en-gb+m3"}
       },
       "narrator": {
         "label": "",
         "look": "",
         "acting": "calm, confident, quietly powerful; the channel's own voice",
-        "voice": {"styletts2": true, "openai": "onyx", "kokoro": "am_fenrir", "espeak": "en-us+m3"}
+        "voice": {"edge": "en-US-AndrewNeural", "styletts2": true, "openai": "onyx", "kokoro": "am_fenrir", "espeak": "en-us+m3"}
       }
     },
     "locations": {

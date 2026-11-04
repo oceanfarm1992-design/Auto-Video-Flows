@@ -39,8 +39,8 @@
   },
 
   "tts": {
-    "_comment": "Per-line voices from each character's 'voice' block. Engines are tried in order per line. 'openai' = gpt-4o-mini-tts with acting instructions (pennies per video); 'kokoro' and 'espeak' are free and offline; 'silent' writes silence (dry runs/tests only). The narrator tries the channel's cloned voice (styletts2) first.",
-    "engines": ["openai", "kokoro", "espeak"],
+    "_comment": "Per-line voices from each character's 'voice' block. Engines are tried in order per line. 'openai' = gpt-4o-mini-tts with acting instructions (pennies per video); 'edge' = free Microsoft neural voices with exact word timings (no key; unofficial endpoint, so it can rate-limit); 'kokoro' and 'espeak' are free and offline; 'silent' writes silence (dry runs/tests only). The narrator tries the channel's cloned voice (styletts2) first.",
+    "engines": ["openai", "edge", "kokoro", "espeak"],
     "openai_model": "gpt-4o-mini-tts",
     "gap_s": 0.22,
     "tail_s": 0.6
