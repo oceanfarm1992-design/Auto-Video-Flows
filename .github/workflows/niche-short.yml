@@ -205,8 +205,10 @@ jobs:
         if: steps.fmt.outputs.format == 'skit'
         run: python scripts/assemble_skit.py --niche "$NICHE_CFG"
 
+      # Optional preview: an artifact-service hiccup must never stop the video from publishing.
       - name: "Skit: keep a preview of the keyframes"
         if: ${{ always() && steps.fmt.outputs.format == 'skit' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: skit-${{ inputs.niche }}-${{ github.run_id }}
