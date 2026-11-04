@@ -251,7 +251,10 @@ def make_scene(niche: dict, shot: dict, t0: float, track: MouthTrack | None):
     if close:   # one character, bigger: the speaker if visible, else the first named
         chars = [speaker] if speaker in chars else chars[:1]
     xs = layout(len(chars))
-    s = 1.95 if close else {1: 1.45, 2: 1.38, 3: 1.18}.get(len(chars), 1.18)
+    s = 1.9 if close else {1: 1.45, 2: 1.38, 3: 1.18}.get(len(chars), 1.18)
+    # A close-up is framed waist-up: the hips sit below the floor line and the legs are
+    # cropped, so the bigger head and name tag stay inside the frame.
+    hip_close = 1500.0
     expr_speaker = expression(shot.get("emotion", ""))
     props = [] if close else props_for(locations_of(niche).get(shot["location"], ""))
     wall_x, floor_x = [540, 150, 930], [930, 150, 540]
@@ -268,7 +271,8 @@ def make_scene(niche: dict, shot: dict, t0: float, track: MouthTrack | None):
         gt = t0 + t
         for fn, px in placed:
             fn(c, px, t)
-        c.line([(50, GROUND_Y), (1030, GROUND_Y)], 7, INK, 2.5)
+        if not close:
+            c.line([(50, GROUND_Y), (1030, GROUND_Y)], 7, INK, 2.5)
         for i, cid in enumerate(chars):
             x = xs[i]
             if len(chars) == 1:
@@ -290,8 +294,11 @@ def make_scene(niche: dict, shot: dict, t0: float, track: MouthTrack | None):
                 expr = "neutral" if expr_speaker != "angry" else "worried"
                 if speaker == "narrator":
                     expr = expr_speaker if expr_speaker != "angry" else "neutral"
-            fig = Figure(x, hip_y_standing(s) - breathe, s, facing, INK, expr, pose, faceless=True)
+            hip_y = (hip_close if close else hip_y_standing(s)) - breathe
+            fig = Figure(x, hip_y, s, facing, INK, expr, pose, faceless=True)
             j = draw_figure(c, fig)
+            if close:   # crop the legs at the bottom of the stage
+                c.rect(0, GROUND_Y - 30, 1080, 700, fill=PAPER, w=0)
             r = 46 * s
             tilt = (pose.lean + pose.head) * facing
             blink = (gt * 0.31 + i * 0.37) % 1.0 < 0.045

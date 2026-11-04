@@ -45,29 +45,84 @@ from skit_common import (asset_dir, cast_of, character_sheet_prompt, label, load
 
 # ── providers ────────────────────────────────────────────────────────────────
 
+class FatalImageError(RuntimeError):
+    """A request that will fail the same way every time (bad model, no access): never retried."""
+
+
+def _is_model_missing(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return ("does not exist" in msg or "model_not_found" in msg or "invalid model" in msg
+            or "unknown model" in msg) and "model" in msg
+
+
+def model_size(model: str, cfg: dict) -> str:
+    """gpt-image-2 takes any WxH divisible by 16 -> exact 9:16. Older models: their 2:3 portrait."""
+    if model.startswith("gpt-image-2") or model == "chatgpt-image-latest":
+        return cfg.get("openai_size_v2", "864x1536")
+    return cfg.get("openai_size", "1024x1536")
+
+
 class OpenAIImages:
+    """OpenAI GPT Image models. Model names change (gpt-image-1 was retired for some accounts),
+    so this tries config openai_models in order and, if none exists, asks the account which
+    gpt-image models it can use and takes the newest."""
+
     def __init__(self, cfg: dict):
         from openai import OpenAI
         if not os.environ.get("OPENAI_API_KEY"):
             raise RuntimeError("OPENAI_API_KEY not set")
         self.client = OpenAI()
-        self.model = cfg.get("openai_model", "gpt-image-1")
-        self.size = cfg.get("openai_size", "1024x1536")
+        self.cfg = cfg
+        self.candidates = list(cfg.get("openai_models") or [cfg.get("openai_model", "gpt-image-2")])
+        self.model: str | None = None
         self.quality = cfg.get("openai_quality", "medium")
 
+    def _discover(self) -> list[str]:
+        try:
+            ids = [m.id for m in self.client.models.list() if "image" in m.id and m.id.startswith(("gpt-image", "chatgpt-image"))]
+        except Exception as exc:  # noqa: BLE001
+            print(f"[keyframes] could not list models: {exc}", file=sys.stderr)
+            return []
+        return sorted(ids, reverse=True)
+
+    def _call(self, fn):
+        """Run fn(model) with the first model that exists; remember it for later calls."""
+        if self.model:
+            return fn(self.model)
+        tried = []
+        for pool in (self.candidates, None):
+            names = pool if pool is not None else [m for m in self._discover() if m not in tried]
+            for m in names:
+                tried.append(m)
+                try:
+                    out = fn(m)
+                    self.model = m
+                    print(f"[keyframes] using image model {m}")
+                    return out
+                except Exception as exc:  # noqa: BLE001
+                    if not _is_model_missing(exc):
+                        raise
+                    print(f"[keyframes] image model {m} not available on this account", file=sys.stderr)
+        raise FatalImageError(f"no GPT Image model available (tried {tried})")
+
     def generate(self, prompt: str) -> bytes:
-        r = self.client.images.generate(model=self.model, prompt=prompt, size=self.size, quality=self.quality, n=1)
-        return base64.b64decode(r.data[0].b64_json)
+        def go(m):
+            r = self.client.images.generate(model=m, prompt=prompt, size=model_size(m, self.cfg),
+                                            quality=self.quality, n=1)
+            return base64.b64decode(r.data[0].b64_json)
+        return self._call(go)
 
     def edit(self, prompt: str, refs: list[Path]) -> bytes:
-        files = [open(p, "rb") for p in refs]
-        try:
-            r = self.client.images.edit(model=self.model, image=files, prompt=prompt, size=self.size,
-                                        quality=self.quality, n=1)
-        finally:
-            for f in files:
-                f.close()
-        return base64.b64decode(r.data[0].b64_json)
+        def go(m):
+            files = [open(p, "rb") for p in refs]
+            try:
+                r = self.client.images.edit(model=m, image=files, prompt=prompt, size=model_size(m, self.cfg),
+                                            quality=self.quality, n=1)
+            finally:
+                for f in files:
+                    f.close()
+            return base64.b64decode(r.data[0].b64_json)
+        return self._call(go)
 
 
 def data_uri(path: Path, max_side: int = 900) -> str:
@@ -129,8 +184,10 @@ def with_retry(fn, tries: int = 3):
     for k in range(tries):
         try:
             return fn()
+        except FatalImageError:
+            raise
         except Exception as exc:  # noqa: BLE001
-            if k == tries - 1:
+            if k == tries - 1 or _is_model_missing(exc) or "must be verified" in str(exc).lower():
                 raise
             print(f"[keyframes] retry after {type(exc).__name__}: {str(exc)[:160]}", file=sys.stderr)
             time.sleep(4 * (k + 1))
