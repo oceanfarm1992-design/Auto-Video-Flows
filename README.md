@@ -203,6 +203,9 @@ each topic in 10-14 shots, and the narrator (the channel's cloned voice) closes 
 
 Posting, release upload and history logging are the same steps as the narrated format.
 
+**Live:** both series (`men_psychology`, `power_psychology`) run in the skit format with the sad piano music.
+`rotate-short.yml` posts one video a day at 14:00 UTC, alternating series, so each series posts every 2nd day.
+
 ### Turning it on
 
 1. **Optional but recommended:** add the `FAL_KEY` secret (https://fal.ai, pay per clip) for real character
