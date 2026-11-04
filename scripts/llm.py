@@ -214,3 +214,56 @@ def chat_json(system: str, prompt: str, openai_model: str = "gpt-4.1", max_token
     resp = OpenAI().chat.completions.create(**kwargs)
     print(f"[llm] {task}: OpenAI {openai_model}")
     return json.loads(resp.choices[0].message.content), f"openai:{openai_model}"
+
+
+# ── vision: point at things in a picture ─────────────────────────────────────
+
+def _image_part(path: str, max_side: int = 1024) -> dict:
+    import base64
+    import io
+
+    from PIL import Image
+    im = Image.open(path).convert("RGB")
+    im.thumbnail((max_side, max_side))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=88)
+    return {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()}}
+
+
+def vision_json(prompt: str, image_path: str, openai_model: str = "gpt-4.1-mini",
+                task: str = "vision") -> tuple[dict, str]:
+    """JSON answer about one picture. Free OpenRouter vision models first (same free-only rules
+    and per-run cap as chat_json), then a cheap OpenAI vision model."""
+    cfg = load_cfg()
+    content = [{"type": "text", "text": prompt}, _image_part(image_path)]
+    key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if key and cfg.get("use_openrouter", True) and task in cfg.get("openrouter_tasks", []) \
+            and not _OR_STATE.get("vision_dead"):
+        cap = int(cfg.get("max_requests_per_run", 8))
+        for model in [m for m in cfg.get("openrouter_vision_models", []) if is_free_id(m)]:
+            if _OR_STATE.get("requests", 0) >= cap:
+                break
+            _OR_STATE["requests"] = _OR_STATE.get("requests", 0) + 1
+            body = {"model": model, "max_tokens": OPENROUTER_MAX_TOKENS, "temperature": 0,
+                    "reasoning": {"effort": "low", "exclude": True},
+                    "messages": [{"role": "user", "content": content}]}
+            try:
+                r = requests.post(f"{OPENROUTER_BASE}/chat/completions", json=body, timeout=300,
+                                  headers={"Authorization": f"Bearer {key}", "X-Title": "auto-video-flows"})
+                if r.status_code == 429:
+                    raise RateLimited(r.text[:300])
+                r.raise_for_status()
+                text, _ = reply_text(r.json())
+                print(f"[llm] {task}: OpenRouter {model} (free)")
+                return parse_json(text), f"openrouter:{model}"
+            except Exception as exc:  # noqa: BLE001
+                print(f"[llm] vision {model} failed: {str(exc)[:160]}", file=sys.stderr)
+        _OR_STATE["vision_dead"] = True
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise RuntimeError("no vision model available")
+    from openai import OpenAI
+    resp = OpenAI().chat.completions.create(model=openai_model, temperature=0, max_tokens=400,
+                                            response_format={"type": "json_object"},
+                                            messages=[{"role": "user", "content": content}])
+    print(f"[llm] {task}: OpenAI {openai_model}")
+    return json.loads(resp.choices[0].message.content), f"openai:{openai_model}"

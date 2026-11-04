@@ -89,12 +89,12 @@ def _change_mask(closed: Image.Image, opened: Image.Image, scale: int, thresh: f
     return np.asarray(m) > 0
 
 
-def _mouth_blob(mask: np.ndarray, x_lo: int, x_hi: int):
-    """Best mouth-like region inside columns [x_lo, x_hi): compact, small, in the face band."""
+def _candidates(mask: np.ndarray, x_lo: int, x_hi: int) -> list[tuple[int, int, int, int, int]]:
+    """Mouth-sized, compact changed regions inside columns [x_lo, x_hi): (area, x0, y0, x1, y1)."""
     sh, sw = mask.shape
     sub = np.zeros_like(mask)
     sub[:, x_lo:x_hi] = mask[:, x_lo:x_hi]
-    best = None
+    out = []
     for area, y0, x0, y1, x1 in _components(sub):
         bw, bh = x1 - x0 + 1, y1 - y0 + 1
         cy = (y0 + y1) / 2 / sh
@@ -102,30 +102,86 @@ def _mouth_blob(mask: np.ndarray, x_lo: int, x_hi: int):
             continue
         if not (0.10 <= cy <= 0.80) or not (0.5 <= bw / bh <= 5.0):
             continue
-        fill = area / (bw * bh)                       # a mouth is a filled blob, not an outline
-        score = area * (0.5 + fill)
-        if best is None or score > best[0]:
-            best = (score, x0, y0, x1, y1)
-    return best
+        out.append((area, x0, y0, x1, y1))
+    return out
+
+
+def _eye_like(c, others) -> bool:
+    """Eyes come in a pair: a similar-sized region at the same height, a little to the side.
+    (An edit that opens mouths often redraws the eyes too; those must not be taken for a mouth.)"""
+    area, x0, y0, x1, y1 = c
+    cx, cy, bw, bh = (x0 + x1) / 2, (y0 + y1) / 2, x1 - x0 + 1, y1 - y0 + 1
+    for o in others:
+        if o is c:
+            continue
+        oa, ox0, oy0, ox1, oy1 = o
+        ocx, ocy = (ox0 + ox1) / 2, (oy0 + oy1) / 2
+        if abs(ocy - cy) < 0.6 * max(bh, oy1 - oy0 + 1) and 0 < abs(ocx - cx) < 5 * max(bw, ox1 - ox0 + 1) \
+                and max(area, oa) / max(1, min(area, oa)) < 2.5:
+            return True
+    return False
+
+
+def pick_mouth(cands: list, hint: tuple[float, float] | None, shape: tuple[int, int]):
+    """The mouth among the candidates: the one nearest the vision hint (x, y in 0..1) when there is
+    one close by; else not part of an eye pair, preferring the lowest (mouths sit below the eyes)
+    and filled shapes. Returns (area, x0, y0, x1, y1) or None."""
+    if not cands:
+        return None
+    sh, sw = shape
+    if hint:
+        hx, hy = hint[0] * sw, hint[1] * sh
+        near = min(cands, key=lambda c: ((c[1] + c[3]) / 2 - hx) ** 2 + ((c[2] + c[4]) / 2 - hy) ** 2)
+        d = (((near[1] + near[3]) / 2 - hx) ** 2 + ((near[2] + near[4]) / 2 - hy) ** 2) ** 0.5
+        if d < 0.08 * sw:
+            return near
+    pool = [c for c in cands if not _eye_like(c, cands)]
+    if not pool:
+        return None           # only an eye pair changed: animating it would look wrong
+
+    def score(c):
+        area, x0, y0, x1, y1 = c
+        fill = area / ((x1 - x0 + 1) * (y1 - y0 + 1))
+        return (y1, area * (0.5 + fill))          # lowest first, then biggest filled
+    if len(pool) > 1:
+        lowest = max(pool, key=lambda c: c[4])
+        # only prefer "lowest" among regions on the same face (within ~3 mouth widths vertically)
+        same_face = [c for c in pool if lowest[4] - c[4] < 3 * (lowest[3] - lowest[1] + 1)]
+        pool = same_face or pool
+    return max(pool, key=score)
 
 
 def detect_mouths(closed: Image.Image, opened: Image.Image, n_chars: int,
-                  thresh: float = 45.0, scale: int = 4) -> list[list[int]]:
+                  thresh: float = 45.0, scale: int = 4,
+                  hints: list | None = None) -> list[list[int]]:
     """Mouth boxes [x0, y0, x1, y1] (closed-image pixels), left to right, one per character found.
     Characters stand in n_chars equal columns (left-to-right order is pinned in the prompt); each
-    column is searched on its own so one big change can't hide another character's mouth."""
+    column is searched on its own. hints: optional per-character (x, y) mouth points in 0..1 from a
+    vision model; when a hint has no changed region near it, a box is placed on the hint if the
+    picture changed there at all."""
     w, h = closed.size
     mask = _change_mask(closed, opened, scale, thresh)
     sh, sw = mask.shape
     n = max(1, n_chars)
     boxes = []
     for k in range(n):
+        hint = hints[k] if hints and k < len(hints) else None
         lo = int(max(0, (k - 0.15) * sw / n))
         hi = int(min(sw, (k + 1.15) * sw / n))
-        blob = _mouth_blob(mask, lo, hi)
-        if not blob:
+        best = pick_mouth(_candidates(mask, lo, hi), hint, (sh, sw))
+        if best and hint:
+            bx, by = (best[1] + best[3]) / 2 / sw, (best[2] + best[4]) / 2 / sh
+            if abs(bx - hint[0]) > 0.08 or abs(by - hint[1]) > 0.06:
+                best = None
+        if best is None and hint:
+            hw, hh = int(0.035 * sw), int(0.02 * sh)
+            cx, cy = int(hint[0] * sw), int(hint[1] * sh)
+            box_s = (max(0, cx - hw), max(0, cy - hh), min(sw - 1, cx + hw), min(sh - 1, cy + hh))
+            if mask[box_s[1]:box_s[3] + 1, box_s[0]:box_s[2] + 1].mean() > 0.02:
+                best = (0, *box_s)
+        if not best:
             continue
-        _, x0, y0, x1, y1 = blob
+        _, x0, y0, x1, y1 = best
         bw, bh = x1 - x0 + 1, y1 - y0 + 1
         pad_x, pad_y = bw * 0.6 + 2, bh * 0.8 + 2
         box = [int(max(0, (x0 - pad_x) * scale)), int(max(0, (y0 - pad_y) * scale)),

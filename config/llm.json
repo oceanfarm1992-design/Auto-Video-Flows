@@ -1,10 +1,18 @@
 {
   "_comment": "Text-model routing for scripts (scripts/llm.py). With the OPENROUTER_API_KEY secret set, the tasks listed in openrouter_tasks try free OpenRouter models first and fall back to OpenAI (gpt-4.1) if they are rate-limited, down or return unusable JSON. Free tier: 20 requests/min, 50/day (1,000/day after a one-time $10 credit). Add \"narrated_script\" to openrouter_tasks to move the live narrated series to free models too (test it first: gpt-4.1 was chosen for writing quality). Free only: model ids must end in ':free' (or be the openrouter/free router); anything else is skipped, so the OpenRouter key is never billed. max_requests_per_run caps free requests per video well under the 50/day free limit; past it the run uses OpenAI. openrouter_free_models is tried first if those models are still free; then the best free models OpenRouter currently lists; then the openrouter/free router.",
   "use_openrouter": true,
-  "openrouter_tasks": ["skit_script"],
-  "openrouter_free_models": ["nvidia/nemotron-3.5-super-vl:free"],
+  "openrouter_tasks": [
+    "skit_script",
+    "vision"
+  ],
+  "openrouter_free_models": [
+    "nvidia/nemotron-3.5-super-vl:free"
+  ],
   "max_discovered": 3,
   "max_attempts": 4,
   "max_requests_per_run": 8,
-  "use_free_router": true
+  "use_free_router": true,
+  "openrouter_vision_models": [
+    "nvidia/nemotron-3.5-super-vl:free"
+  ]
 }

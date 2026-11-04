@@ -178,6 +178,7 @@ jobs:
         if: steps.fmt.outputs.format == 'skit'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.OPENROUTER_API }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
           IMAGE_PROVIDER: ${{ vars.IMAGE_PROVIDER }}
         run: python scripts/generate_keyframes.py --niche "$NICHE_CFG"

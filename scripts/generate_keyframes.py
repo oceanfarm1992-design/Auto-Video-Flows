@@ -276,6 +276,26 @@ def make_job(provider, niche: dict, skit: dict, job: dict, shots: list[dict], as
         return None
 
 
+def mouth_hints(niche: dict, chars: list[str], image: str) -> list | None:
+    """Where each character's mouth is, per a vision model (free OpenRouter VL first, then
+    gpt-4.1-mini, ~0.1 cent). Only used to pick the right changed region; None if unavailable."""
+    from llm import vision_json
+    from skit_common import mouth_points_prompt
+    try:
+        data, used = vision_json(mouth_points_prompt(niche, chars), image)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[keyframes] no mouth hints ({str(exc)[:120]})", file=sys.stderr)
+        return None
+    out = []
+    for c in chars:
+        v = data.get(c)
+        ok = isinstance(v, (list, tuple)) and len(v) == 2 and all(isinstance(t, (int, float)) for t in v) \
+            and all(0 <= t <= 1 for t in v)
+        out.append((float(v[0]), float(v[1])) if ok else None)
+    print(f"[keyframes] mouth hints from {used}: {dict(zip(chars, out))}")
+    return out
+
+
 def make_mouth_variant(provider, niche: dict, job: dict, closed: str, out_dir: Path) -> dict | None:
     """Open-mouth edit of a keyframe + where each character's mouth is (mouth_flaps.py)."""
     from mouth_flaps import aligned_open, assign_mouths, detect_mouths
@@ -285,7 +305,8 @@ def make_mouth_variant(provider, niche: dict, job: dict, closed: str, out_dir: P
             save_png(with_retry(lambda: provider.edit(mouth_open_prompt(niche, job["characters"]),
                                                       [Path(closed)], shrink=False)), dest)
         base = Image.open(closed).convert("RGB")
-        boxes = detect_mouths(base, aligned_open(base, Image.open(dest)), len(job["characters"]))
+        hints = mouth_hints(niche, job["characters"], closed)
+        boxes = detect_mouths(base, aligned_open(base, Image.open(dest)), len(job["characters"]), hints=hints)
         mouths = assign_mouths(boxes, job["characters"], base.width)
         from mouth_flaps import debug_overlay
         debug_overlay(base, mouths, str(out_dir / f"{job['key']}_mouths.jpg"))

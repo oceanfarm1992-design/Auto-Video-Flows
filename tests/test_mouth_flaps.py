@@ -121,4 +121,35 @@ with tempfile.TemporaryDirectory() as tmp:
     mf.debug_overlay(bc, bm, out)
     check("debug overlay saved for the run preview", os.path.getsize(out) > 1000)
 
+
+
+# run #56: the edit redrew the bearded character's EYES (wider) and opened the mouth only a little
+def eyes_and_mouth(open_mouth: bool, mouth: bool = True) -> Image.Image:
+    im = bearded(False)
+    d = ImageDraw.Draw(im)
+    fx, fy = FACES[0]
+    if open_mouth:
+        for ex in (fx - 40, fx + 40):                                   # both eyes redrawn bigger
+            d.ellipse([ex - 22, fy - 45, ex + 22, fy + 5], fill=(250, 250, 250), outline=(20, 20, 20), width=5)
+            d.ellipse([ex - 8, fy - 28, ex + 8, fy - 12], fill=(20, 20, 20))
+        if mouth:
+            d.ellipse([fx - 22, fy + 55, fx + 22, fy + 80], fill=(165, 60, 70))
+            d.rectangle([fx - 16, fy + 57, fx + 16, fy + 63], fill=(245, 245, 240))
+    return im
+
+
+ec = eyes_and_mouth(False)
+eo = eyes_and_mouth(True)
+b1 = mf.detect_mouths(ec, mf.aligned_open(ec, eo), 2)
+check("redrawn eye pair is NOT taken for the mouth; the mouth below is",
+      len(b1) >= 1 and contains(b1[0], 330, 857) and not contains(b1[0], 330, 770))
+only_eyes = eyes_and_mouth(True, mouth=False)
+b2 = mf.detect_mouths(ec, mf.aligned_open(ec, only_eyes), 2)
+check("if only the eyes changed, no mouth is invented for that character",
+      not any(contains(b, 330, 770) for b in b2))
+b3 = mf.detect_mouths(ec, mf.aligned_open(ec, eo), 2, hints=[(330 / W, 867 / H), None])
+check("a vision hint at the mouth picks the mouth", len(b3) >= 1 and contains(b3[0], 330, 857))
+b4 = mf.detect_mouths(ec, mf.aligned_open(ec, only_eyes), 2, hints=[(330 / W, 867 / H), None])
+check("a hint where nothing changed gives no box", not any(contains(b, 330, 867) for b in b4))
+
 sys.exit(1 if FAILED else 0)

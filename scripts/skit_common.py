@@ -192,7 +192,19 @@ def master_prompt(niche: dict, skit: dict, location: str, chars: list[str], ref_
 def mouth_open_prompt(niche: dict, chars: list[str]) -> str:
     who = ", ".join(label(niche, c) for c in chars) or "every character"
     return (
-        f"Edit this exact image. Only change: {who} now have their mouths open mid-word, a clear dark open "
-        "mouth on each face. Change NOTHING else: identical pose, framing, camera, outlines, colours, lighting, "
-        "background, caps and cap text, same size and position of everything. Same cartoon style."
+        f"Edit this exact image. Only change the MOUTHS: {who} now speak, each mouth wide open mid-word, "
+        "clearly showing the dark inside of the mouth, teeth and tongue (also through any beard or moustache). "
+        "Keep the eyes, eyelids, eyebrows, faces, hands, pose, framing, outlines, colours, lighting, background, "
+        "caps and cap text EXACTLY the same, same size and position of everything. Same cartoon style."
+    )
+
+
+def mouth_points_prompt(niche: dict, chars: list[str]) -> str:
+    names = ", ".join(label(niche, c) for c in chars)
+    keys = ", ".join(f'"{c}": [x, y]' for c in chars)
+    return (
+        f"This cartoon picture shows, from left to right: {names} (each wears a cap with their name). "
+        "For each of them, give the position of the CENTER OF THEIR MOUTH as fractions of the image width "
+        "(x, 0 = left edge, 1 = right edge) and height (y, 0 = top, 1 = bottom). Reply with JSON only: "
+        f"{{{keys}}}. Use null for anyone whose mouth is not visible."
     )
