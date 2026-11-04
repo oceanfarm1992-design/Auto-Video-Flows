@@ -21,6 +21,10 @@ on:
         description: "Force one footage source for every segment (e.g. doodle); blank = stock with fallbacks"
         type: string
         default: ""
+      format:
+        description: "narrated | skit; blank = the niche config's 'format'"
+        type: string
+        default: ""
 
 permissions:
   contents: write
@@ -50,7 +54,20 @@ jobs:
           pip install torch==2.8.0+cpu torchaudio==2.8.0+cpu --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
 
+      - name: Resolve video format
+        id: fmt
+        env:
+          FORMAT_INPUT: ${{ inputs.format }}
+        run: |
+          F="$FORMAT_INPUT"
+          [ -n "$F" ] || F=$(python -c "import json;print(json.load(open('$NICHE_CFG')).get('format','narrated'))")
+          [ "$F" = "skit" ] || F="narrated"
+          echo "format=$F" >> "$GITHUB_OUTPUT"
+          echo "Format: $F"
+
+      # ── narrated format (one voice over doodle / stock footage) ──────────────
       - name: Generate script (OpenAI GPT)
+        if: steps.fmt.outputs.format == 'narrated'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           TOPIC_INDEX: ${{ inputs.topic_index }}
@@ -64,6 +81,7 @@ jobs:
 
       # Fact-check; on a failed verdict regenerate once with a fresh topic.
       - name: Fact-check narration (OpenAI web search)
+        if: steps.fmt.outputs.format == 'narrated'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
@@ -74,16 +92,19 @@ jobs:
           fi
 
       - name: Generate TTS voiceover
+        if: steps.fmt.outputs.format == 'narrated'
         env:
           VOICE_REPO_PAT: ${{ secrets.VOICE_REPO_PAT }}
         run: python scripts/generate_tts.py --engine styletts2
 
       - name: Generate captions (Whisper)
+        if: steps.fmt.outputs.format == 'narrated'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python scripts/generate_captions.py
 
       - name: Fetch multi-segment footage
+        if: steps.fmt.outputs.format == 'narrated'
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
@@ -104,7 +125,93 @@ jobs:
         run: python scripts/generate_music.py
 
       - name: Assemble video
+        if: steps.fmt.outputs.format == 'narrated'
         run: python scripts/assemble_video.py --config "$NICHE_CFG"
+
+      # ── skit format (recurring cartoon cast, dialogue, AI keyframes + image-to-video) ──
+      - name: "Skit: write the skit (OpenAI GPT)"
+        if: steps.fmt.outputs.format == 'skit'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          TOPIC_INDEX: ${{ inputs.topic_index }}
+        run: |
+          TOPIC_ARG=""
+          if [ -n "$TOPIC_INDEX" ]; then
+            case "$TOPIC_INDEX" in *[!0-9]*) echo "topic_index must be a number"; exit 1;; esac
+            TOPIC_ARG="--topic-index $TOPIC_INDEX"
+          fi
+          python scripts/generate_skit.py --niche "$NICHE_CFG" $TOPIC_ARG
+
+      # The skit's lines are what gets voiced, so a "corrected narration" can't be applied in
+      # place: on any verdict other than pass/skip, write a fresh skit on a new topic once.
+      - name: "Skit: fact-check"
+        if: steps.fmt.outputs.format == 'skit'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          ok() { python -c "import json,sys;v=json.load(open('build/factcheck.json')).get('verdict','');sys.exit(0 if v in ('pass','skipped_no_claims','error') else 1)"; }
+          if ! python scripts/factcheck_script.py || ! ok; then
+            echo "Fact-check did not pass cleanly; writing a new skit on another topic..."
+            python scripts/generate_skit.py --niche "$NICHE_CFG"
+            python scripts/factcheck_script.py
+          fi
+
+      - name: "Skit: character voices"
+        if: steps.fmt.outputs.format == 'skit'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          VOICE_REPO_PAT: ${{ secrets.VOICE_REPO_PAT }}
+        run: python scripts/generate_dialogue_tts.py --niche "$NICHE_CFG"
+
+      - name: "Skit: captions"
+        if: steps.fmt.outputs.format == 'skit'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          HL=$(python -c "import json;print(json.load(open('config/skit.json'))['edit']['caption_highlight'])")
+          python scripts/generate_captions.py --timeline build/skit_timeline.json --highlight "$HL"
+
+      - name: "Skit: cast, locations and keyframes"
+        if: steps.fmt.outputs.format == 'skit'
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          IMAGE_PROVIDER: ${{ vars.IMAGE_PROVIDER }}
+        run: python scripts/generate_keyframes.py --niche "$NICHE_CFG"
+
+      # Better lip sync for the free doodle shots (scripts/lipsync.py). Optional: without it
+      # the built-in text + loudness method is used.
+      - name: "Skit: install Rhubarb Lip Sync (optional)"
+        if: steps.fmt.outputs.format == 'skit'
+        continue-on-error: true
+        run: |
+          V=1.14.0
+          curl -fsSL -o /tmp/rhubarb.zip "https://github.com/DanielSWolf/rhubarb-lip-sync/releases/download/v${V}/Rhubarb-Lip-Sync-${V}-Linux.zip"
+          sudo unzip -q -o /tmp/rhubarb.zip -d /opt
+          BIN=$(find /opt -maxdepth 2 -type f -name rhubarb | head -1)
+          [ -n "$BIN" ] && echo "RHUBARB_BIN=$BIN" >> "$GITHUB_ENV" && "$BIN" --version
+
+      - name: "Skit: animate shots"
+        if: steps.fmt.outputs.format == 'skit'
+        env:
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          VIDEO_PROVIDER: ${{ vars.VIDEO_PROVIDER }}
+        run: python scripts/animate_shots.py --niche "$NICHE_CFG"
+
+      - name: "Skit: edit"
+        if: steps.fmt.outputs.format == 'skit'
+        run: python scripts/assemble_skit.py --niche "$NICHE_CFG"
+
+      - name: "Skit: keep a preview of the keyframes"
+        if: ${{ always() && steps.fmt.outputs.format == 'skit' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: skit-${{ inputs.niche }}-${{ github.run_id }}
+          path: |
+            build/script.json
+            build/keyframes/
+            build/skit_timeline.json
+          if-no-files-found: ignore
 
       - name: Publish video as release asset
         id: publish_asset
@@ -167,6 +274,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add "$HIST" "$USED" 2>/dev/null || true
+          # first skit runs design the cast and locations: keep them so every later video reuses them
+          git add assets/skit 2>/dev/null || true
           git commit -m "log: ${{ inputs.niche }} run ${DATE}" || { echo "nothing to commit"; exit 0; }
           for i in 1 2 3; do
             git pull --rebase && git push && exit 0

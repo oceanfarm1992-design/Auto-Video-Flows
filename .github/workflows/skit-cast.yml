@@ -1,0 +1,58 @@
+name: skit-cast
+
+# Design (or redesign) a niche's recurring cartoon cast and its location plates for the
+# skit format, WITHOUT making a video. Review the images in the run's artifact; when you
+# like them, re-run with commit=true so every future skit reuses exactly these designs.
+# To redesign one character, delete assets/skit/<niche>/characters/<id>.png and re-run.
+
+on:
+  workflow_dispatch:
+    inputs:
+      niche:
+        description: "Which series"
+        type: choice
+        options: ["men_psychology", "power_psychology"]
+        default: men_psychology
+      commit:
+        description: "Commit the designs to the repo (otherwise preview only)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  design:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+
+      - name: Install python deps
+        run: pip install "openai>=1.60" requests Pillow numpy
+
+      - name: Design cast and locations
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          FAL_KEY: ${{ secrets.FAL_KEY }}
+          IMAGE_PROVIDER: ${{ vars.IMAGE_PROVIDER }}
+        run: python scripts/generate_keyframes.py --niche "config/niches/${{ inputs.niche }}.json" --assets-only
+
+      - name: Upload designs for review
+        uses: actions/upload-artifact@v4
+        with:
+          name: cast-${{ inputs.niche }}-${{ github.run_id }}
+          path: assets/skit/${{ inputs.niche }}/
+
+      - name: Commit designs
+        if: ${{ inputs.commit && github.ref == 'refs/heads/main' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/skit
+          git commit -m "skit: cast and locations for ${{ inputs.niche }}" || { echo "nothing new"; exit 0; }
+          for i in 1 2 3; do git pull --rebase && git push && exit 0; sleep 5; done
+          exit 1

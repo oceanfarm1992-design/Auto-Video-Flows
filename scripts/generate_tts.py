@@ -6,6 +6,9 @@ Engines, tried in order (first available wins unless --engine forces one):
   1. StyleTTS2 (MIT license) — clones the channel owner's own voice from a private
      reference sample (fetched at runtime via VOICE_REPO_PAT, never stored in this
      repo). Primary voice.
+  1b. Edge TTS — free Microsoft neural voices (no key), with exact word timings written to
+     build/word_timings.json so captions need no transcription. Unofficial endpoint, so it can
+     rate-limit; the chain carries on to Kokoro if it does. (Adopted from MoneyPrinterTurbo.)
   2. Kokoro-82M (https://huggingface.co/hexgrad/Kokoro-82M) — open-weights neural
      TTS, runs fully offline once its checkpoint is cached, no API key or per-run
      cost. Fallback if StyleTTS2 fails to load (e.g. VOICE_REPO_PAT not set, or the
@@ -24,6 +27,7 @@ Output: build/voice.wav
 Usage:
     python scripts/generate_tts.py
     python scripts/generate_tts.py --engine styletts2
+    python scripts/generate_tts.py --engine edge --voice en-US-AndrewNeural
     python scripts/generate_tts.py --engine kokoro --voice am_fenrir
     python scripts/generate_tts.py --engine piper --voice en_US-ryan-high
     python scripts/generate_tts.py --engine espeak
@@ -184,6 +188,30 @@ def run_styletts2(text, out_wav):
     model.inference(text, target_voice_path=ref_path, output_wav_file=out_wav)
 
 
+# ------------------------------------------------------------------------------ Edge
+def run_edge(text, out_wav, voice="en-US-AndrewNeural", rate="+0%"):
+    import json
+    import tempfile
+
+    from tts_edge import synth_edge
+
+    print(f"[generate_tts] calling Edge TTS (voice={voice}) ...")
+    fd, mp3 = tempfile.mkstemp(suffix=".mp3", dir=os.path.dirname(os.path.abspath(out_wav)))
+    os.close(fd)
+    try:
+        words = synth_edge(text, mp3, voice, rate)
+        proc = subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", mp3, "-ac", "1", "-ar", "24000", out_wav],
+                              capture_output=True, text=True)
+        if proc.returncode != 0:
+            raise RuntimeError(f"ffmpeg could not convert the Edge mp3: {proc.stderr[:200]}")
+    finally:
+        if os.path.exists(mp3):
+            os.remove(mp3)
+    timings = os.path.join(os.path.dirname(out_wav) or ".", "word_timings.json")
+    with open(timings, "w", encoding="utf-8") as f:
+        json.dump({"exact": bool(words), "words": [[w, round(a, 3), round(b, 3)] for w, a, b in words]}, f)
+
+
 # ----------------------------------------------------------------------------- Piper
 def download(url, dest):
     if os.path.exists(dest) and os.path.getsize(dest) > 0:
@@ -233,7 +261,7 @@ def run_espeak(text, out_wav):
 
 
 def synth(text, out, engines, openai_model, openai_voice, instructions,
-          piper_voice, voices_dir, kokoro_voice, kokoro_lang):
+          piper_voice, voices_dir, kokoro_voice, kokoro_lang, edge_voice="en-US-AndrewNeural"):
     """Synthesize `text` to `out`, trying each engine in order until one succeeds."""
     os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
     last_error = None
@@ -241,6 +269,8 @@ def synth(text, out, engines, openai_model, openai_voice, instructions,
         try:
             if engine == "styletts2":
                 run_styletts2(text, out)
+            elif engine == "edge":
+                run_edge(text, out, edge_voice)
             elif engine == "kokoro":
                 run_kokoro(text, out, kokoro_voice, kokoro_lang)
             elif engine == "openai":
@@ -263,8 +293,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--script", default="build/script.txt")
     ap.add_argument("--out", default="build/voice.wav")
-    ap.add_argument("--engine", choices=["auto", "styletts2", "kokoro", "openai", "piper", "espeak"], default="auto",
-                    help="auto tries StyleTTS2 (cloned voice), then Kokoro, then Piper, then espeak-ng.")
+    ap.add_argument("--engine", choices=["auto", "styletts2", "edge", "kokoro", "openai", "piper", "espeak"],
+                    default="auto",
+                    help="auto tries StyleTTS2 (cloned voice), then Edge, then Kokoro, then Piper, then espeak-ng.")
     ap.add_argument("--voice", default=None,
                     help="Kokoro voice name, OpenAI voice name, or Piper voice ID, depending on --engine.")
     ap.add_argument("--voices-dir", default="voices")
@@ -283,11 +314,12 @@ def main():
     kokoro_voice = args.voice if args.engine in ("auto", "kokoro") and args.voice else "am_fenrir"
     piper_voice = args.voice if args.voice in VOICE_PATHS else "en_US-amy-medium"
     openai_voice = args.voice if args.voice else "onyx"
-    engines = [args.engine] if args.engine != "auto" else ["styletts2", "kokoro", "piper", "espeak"]
+    edge_voice = args.voice if args.engine == "edge" and args.voice else "en-US-AndrewNeural"
+    engines = [args.engine] if args.engine != "auto" else ["styletts2", "edge", "kokoro", "piper", "espeak"]
 
     synth(text, args.out, engines=engines, openai_model=args.openai_model,
           openai_voice=openai_voice, instructions=None, piper_voice=piper_voice,
-          voices_dir=args.voices_dir, kokoro_voice=kokoro_voice, kokoro_lang="a")
+          voices_dir=args.voices_dir, kokoro_voice=kokoro_voice, kokoro_lang="a", edge_voice=edge_voice)
 
 
 if __name__ == "__main__":

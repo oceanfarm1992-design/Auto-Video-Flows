@@ -17,6 +17,61 @@
     "max_seconds": 90
   },
 
+  "format": "narrated",
+
+  "skit": {
+    "_comment": "Cartoon-skit format (format: skit). The Calm (hero) and The Loud (his opposite) act out each power/influence principle as a short dialogue scene; the narrator (the channel owner's cloned voice) names the psychology at the end. Character sheets and location plates are generated once and cached in assets/skit/power_psychology/.",
+    "hero": "the_calm",
+    "cast": {
+      "the_calm": {
+        "label": "The Calm",
+        "look": "a lean man in his early thirties with neat short black hair and a calm half-smile, wearing a fitted charcoal suit with an open-collar white shirt, black shoes, and a white baseball cap",
+        "acting": "slow, quiet, unbothered, a hint of amusement; never raises his voice",
+        "voice": {"edge": "en-US-BrianNeural", "openai": "sage", "kokoro": "am_michael", "espeak": "en-us+m2"}
+      },
+      "the_loud": {
+        "label": "The Loud",
+        "look": "a stocky red-faced man in his forties with a thick neck and short ginger hair, a tight orange polo shirt, cargo shorts and sandals with socks, and a bright red baseball cap",
+        "acting": "loud, pushy, easily rattled, overconfident",
+        "voice": {"edge": "en-US-GuyNeural", "openai": "ash", "kokoro": "am_adam", "espeak": "en-us+m7"}
+      },
+      "the_boss": {
+        "label": "The Boss",
+        "look": "a sharp woman in her fifties with a silver bob haircut and reading glasses, a navy blazer over a black turtleneck, grey trousers, and a navy baseball cap",
+        "acting": "measured, testing, hard to impress",
+        "voice": {"edge": "en-US-AriaNeural", "openai": "shimmer", "kokoro": "af_sarah", "espeak": "en-us+f2"}
+      },
+      "the_rookie": {
+        "label": "The Rookie",
+        "look": "a nervous young man in his early twenties with floppy blond hair, an oversized blue shirt with a lanyard badge, beige chinos and white sneakers, and a light blue baseball cap",
+        "acting": "eager, anxious, asks the questions the viewer is thinking",
+        "voice": {"edge": "en-US-SteffanNeural", "openai": "verse", "kokoro": "am_puck", "espeak": "en-us+m5"}
+      },
+      "the_stranger": {
+        "label": "The Stranger",
+        "look": "a smooth-talking man in his forties with slicked-back hair and a thin moustache, a shiny purple suit, gold watch and pointed shoes, and a purple baseball cap",
+        "acting": "charming, manipulative, smiling too much",
+        "voice": {"edge": "en-GB-RyanNeural", "openai": "ballad", "kokoro": "bm_george", "espeak": "en-gb+m3"}
+      },
+      "narrator": {
+        "label": "",
+        "look": "",
+        "acting": "calm, confident, quietly powerful; the channel's own voice",
+        "voice": {"edge": "en-US-AndrewNeural", "styletts2": true, "openai": "onyx", "kokoro": "am_fenrir", "espeak": "en-us+m3"}
+      }
+    },
+    "locations": {
+      "meeting_room": "a glass-walled corporate meeting room with a long white table, office chairs, a whiteboard and a city skyline behind",
+      "open_office": "a busy open-plan office with rows of desks, monitors, potted plants and a coffee machine in the background",
+      "car_dealership": "a car dealership showroom with a shiny red car, a salesman's desk, balloons and big glass windows",
+      "street": "a city sidewalk outside a coffee shop with a striped awning, a bench, a lamp post and a crosswalk",
+      "elevator": "the inside of an office elevator with brushed metal walls, floor buttons and a handrail",
+      "restaurant": "an upscale restaurant table by the window with white tablecloth, candles and a wine glass",
+      "gym": "a gym floor with racks of dumbbells, a bench press, mirrors and rubber floor tiles",
+      "park": "a city park path with trees, a bench, a pond and joggers far in the background"
+    }
+  },
+
   "tiktok_seo_keywords": [
     "psychology facts", "human psychology", "power dynamics", "emotional control",
     "self control", "mind control", "influence psychology", "mindset",

@@ -17,6 +17,61 @@
     "max_seconds": 90
   },
 
+  "format": "narrated",
+
+  "skit": {
+    "_comment": "Cartoon-skit format (format: skit). A recurring cast with name caps acts out each topic as a short dialogue scene; the narrator (the channel owner's cloned voice) closes with the psychology insight. Character sheets and location plates are generated once and cached in assets/skit/men_psychology/, so the cast looks the same in every video.",
+    "hero": "the_provider",
+    "cast": {
+      "the_provider": {
+        "label": "The Provider",
+        "look": "a man in his late thirties with a short dark beard, tired but kind eyes and broad shoulders, wearing a navy work jacket over a grey hoodie, dark jeans and worn brown work boots, and a navy baseball cap",
+        "acting": "low, warm, tired voice; holds things in; few words",
+        "voice": {"edge": "en-US-ChristopherNeural", "openai": "onyx", "kokoro": "am_fenrir", "espeak": "en-us+m3"}
+      },
+      "the_wife": {
+        "label": "The Wife",
+        "look": "a woman in her late thirties with a dark brown ponytail, a mustard-yellow cardigan over a white top, blue jeans and white sneakers, and a light pink baseball cap",
+        "acting": "quick, expressive, caring but frustrated",
+        "voice": {"edge": "en-US-MichelleNeural", "openai": "coral", "kokoro": "af_heart", "espeak": "en-us+f3"}
+      },
+      "the_kid": {
+        "label": "The Kid",
+        "look": "a nine-year-old boy with messy brown hair, a red t-shirt with a star on it, green shorts and big sneakers, and a small orange baseball cap",
+        "acting": "bright, curious, blunt like kids are",
+        "voice": {"edge": "en-US-AnaNeural", "openai": "fable", "kokoro": "am_puck", "espeak": "en-us+m5"}
+      },
+      "the_boss": {
+        "label": "The Boss",
+        "look": "a heavy-set balding man in his fifties with a grey moustache, a white shirt with rolled sleeves and a loose maroon tie, grey trousers, and a grey baseball cap",
+        "acting": "brisk, impatient, used to being obeyed",
+        "voice": {"edge": "en-US-RogerNeural", "openai": "ash", "kokoro": "am_michael", "espeak": "en-us+m1"}
+      },
+      "the_friend": {
+        "label": "The Friend",
+        "look": "a lanky man in his late thirties with curly black hair and a goatee, an olive bomber jacket over a black t-shirt, khaki pants, and a black baseball cap",
+        "acting": "easy-going, joking, then suddenly sincere",
+        "voice": {"edge": "en-US-EricNeural", "openai": "echo", "kokoro": "am_eric", "espeak": "en-us+m4"}
+      },
+      "narrator": {
+        "label": "",
+        "look": "",
+        "acting": "calm, close, quietly powerful; the channel's own voice",
+        "voice": {"edge": "en-US-AndrewNeural", "styletts2": true, "openai": "onyx", "kokoro": "am_fenrir", "espeak": "en-us+m3"}
+      }
+    },
+    "locations": {
+      "living_room": "a modest family living room with a worn green sofa, a coffee table with kids' drawings, a window with evening light and a framed family photo",
+      "kitchen": "a small family kitchen with a wooden table, a stack of unopened bills, a fridge covered in school notes and a window over the sink",
+      "car": "the inside of an old car parked in a dark driveway at night, seen from the passenger seat, dashboard glow, house lights through the windshield",
+      "workshop_office": "a cramped warehouse office with a cluttered desk, a wall clock, metal filing cabinets and a window onto stacked boxes",
+      "store": "a clothing store aisle with racks of winter coats, a price tag sign and a full-length mirror",
+      "front_porch": "the front steps of a small suburban house at dusk with a porch light, a bicycle on the lawn and a mailbox",
+      "bar": "a quiet neighbourhood bar with a wooden counter, two bar stools, warm hanging lights and a muted TV",
+      "kids_bedroom": "a child's bedroom at night with a small bed, glow-in-the-dark stars on the ceiling, toys on the floor and a night lamp"
+    }
+  },
+
   "tiktok_seo_keywords": [
     "men psychology", "why men", "mens mental health", "understanding men",
     "masculinity", "male mindset", "relationship advice", "emotional strength",

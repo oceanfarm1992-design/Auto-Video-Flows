@@ -15,6 +15,11 @@ on:
       force_source:
         description: "Force one footage source for every segment, e.g. doodle (blank = stock)"
         default: ""
+      format:
+        description: "Video format (blank = the niche config's 'format')"
+        type: choice
+        options: ["", "narrated", "skit"]
+        default: ""
 
 permissions:
   contents: write
@@ -27,4 +32,5 @@ jobs:
       skip_post: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_post }}
       topic_index: ${{ inputs.topic_index || '' }}
       force_source: ${{ inputs.force_source || '' }}
+      format: ${{ inputs.format || '' }}
     secrets: inherit

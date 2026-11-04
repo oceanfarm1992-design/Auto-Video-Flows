@@ -17,8 +17,10 @@ Usage:
 """
 import argparse
 import contextlib
+import difflib
 import json
 import os
+import re
 import wave
 from pathlib import Path
 
@@ -94,7 +96,7 @@ def _group_words(words: list[tuple[str, float, float]]) -> list[list[tuple[str, 
     return groups
 
 
-def words_to_ass(words: list[tuple[str, float, float]]) -> str:
+def words_to_ass(words: list[tuple[str, float, float]], hilite: str = HILITE) -> str:
     """words = (text, start, end) in seconds. One event per word: the whole group is on
     screen and the active word is highlighted and enlarged."""
     events = []
@@ -107,7 +109,7 @@ def words_to_ass(words: list[tuple[str, float, float]]) -> str:
             for j, (text, _, _) in enumerate(group):
                 t = text.strip().upper().replace("{", "(").replace("}", ")")
                 if j == i:
-                    parts.append(rf"{{\c{HILITE}\fscx114\fscy114}}{t}{{\r}}")
+                    parts.append(rf"{{\c{hilite}\fscx114\fscy114}}{t}{{\r}}")
                 else:
                     parts.append(t)
             events.append(f"Dialogue: 0,{fmt_ass_ts(start)},{fmt_ass_ts(max(nxt, start + 0.05))},Cap,,0,0,0,,{' '.join(parts)}")
@@ -180,6 +182,87 @@ def estimated_srt(script_txt: str, audio_path: str,
     return cues_to_srt(cues), timed
 
 
+def timeline_words(timeline_path: str) -> tuple[str, list]:
+    """Offline fallback for skits: spread each line's words across that line's own
+    measured span (build/skit_timeline.json), so pauses between speakers stay in sync."""
+    with open(timeline_path, encoding="utf-8") as f:
+        lines = json.load(f)["lines"]
+    timed, cues = [], []
+    for item in lines:
+        words = item["line"].split()
+        if not words:
+            continue
+        per = (item["end"] - item["start"]) / len(words)
+        for k, w in enumerate(words):
+            timed.append((w, item["start"] + k * per, item["start"] + (k + 1) * per))
+        cues.append((item["start"], item["end"], item["line"]))
+    print(f"[generate_captions] timeline: {len(timed)} words over {len(cues)} lines")
+    return cues_to_srt(cues), timed
+
+
+# ── Script alignment ─────────────────────────────────────────────────────────
+# Technique adopted from MoneyPrinterTurbo (MIT, app/services/subtitle.py `correct`):
+# speech recognition mishears words ("Teodor" -> "Theodore", "forty-one" -> "41"), but we
+# know exactly what was said. Keep the recogniser's TIMING, show the SCRIPT's words.
+# Here it works word by word (difflib) instead of line by line.
+
+def _norm_tok(w: str) -> str:
+    return re.sub(r"[^\w]", "", w.lower().replace("’", "'"))
+
+
+def align_to_script(timed: list, script_text: str, min_ratio: float = 0.5) -> list:
+    """timed = [(word, start, end)]. Returns the script's words carrying the recogniser's times.
+    Falls back to `timed` unchanged when the two don't resemble each other."""
+    script = script_text.split()
+    if not timed or not script:
+        return timed
+    a = [_norm_tok(w) for w, _, _ in timed]
+    b = [_norm_tok(w) for w in script]
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    if sm.ratio() < min_ratio:
+        print(f"[generate_captions] transcript differs too much from the script "
+              f"(match {sm.ratio():.2f}); keeping the transcript")
+        return timed
+    out = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag == "equal":
+            out += [(script[j1 + k], timed[i1 + k][1], timed[i1 + k][2]) for k in range(i2 - i1)]
+        elif tag == "delete":
+            continue
+        else:   # replace / insert: spread the script words over the span the recogniser used
+            words = script[j1:j2]
+            if i2 > i1:
+                t0, t1 = timed[i1][1], timed[i2 - 1][2]
+            else:
+                t0 = timed[i1 - 1][2] if i1 > 0 else timed[0][1]
+                t1 = timed[i1][1] if i1 < len(timed) else t0 + 0.3 * len(words)
+                if t1 - t0 < 0.1 * len(words) and out:
+                    # no audible gap for the missing word(s): share the previous word's time
+                    prev_word, t0, _ = out.pop()
+                    t1 = max(t1, t0 + 0.1)
+                    words = [prev_word] + words
+            per = (t1 - t0) / len(words)
+            out += [(w, t0 + k * per, t0 + (k + 1) * per) for k, w in enumerate(words)]
+    fixed = sum(1 for tag, *_ in sm.get_opcodes() if tag != "equal")
+    print(f"[generate_captions] aligned to script (match {sm.ratio():.2f}, {fixed} region(s) corrected)")
+    return out
+
+
+def words_file(path: str) -> tuple[bool, list]:
+    """build/word_timings.json from the TTS stage: {"exact": bool, "words": [[w, start, end], ...]}."""
+    with open(path, encoding="utf-8") as f:
+        data = json.load(f)
+    return bool(data.get("exact")), [(w, float(a), float(b)) for w, a, b in data.get("words", [])]
+
+
+def timed_to_srt(timed: list, words_per_cue: int) -> str:
+    cues = []
+    for i in range(0, len(timed), words_per_cue):
+        chunk = timed[i:i + words_per_cue]
+        cues.append((chunk[0][1], chunk[-1][2], " ".join(w for w, _, _ in chunk)))
+    return cues_to_srt(cues)
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main():
@@ -191,6 +274,12 @@ def main():
     ap.add_argument("--words-per-cue",type=int, default=4)
     ap.add_argument("--no-whisper",   action="store_true",
                     help="Skip Whisper API and use word-count estimation.")
+    ap.add_argument("--words", default="build/word_timings.json",
+                    help="Word timings written by the TTS stage; used first when they are exact (Edge TTS).")
+    ap.add_argument("--timeline", default=None,
+                    help="build/skit_timeline.json: per-line timing used when Whisper is unavailable.")
+    ap.add_argument("--highlight", default=None,
+                    help="ASS BGR colour of the active word, e.g. '&H0033E633&' (green). Default warm yellow.")
     args = ap.parse_args()
 
     wps = 2.6
@@ -199,22 +288,52 @@ def main():
             wps = json.load(f).get("video", {}).get("words_per_second", wps)
 
     srt, timed = None, None
+    script_txt = Path(args.script).read_text(encoding="utf-8") if os.path.exists(args.script) else ""
 
-    # Try Whisper if key present and not disabled
-    if not args.no_whisper and os.environ.get("OPENAI_API_KEY"):
+    tts_exact, tts_words = False, []
+    if args.words and os.path.exists(args.words):
+        try:
+            tts_exact, tts_words = words_file(args.words)
+        except (ValueError, KeyError, TypeError) as e:
+            print(f"[generate_captions] ignoring unreadable {args.words}: {e}")
+    # Only trust TTS word timings that belong to THIS voice track (an older run's file
+    # may still be lying around when the voice came from another engine).
+    if tts_words and os.path.exists(args.words) and os.path.exists(args.audio) \
+            and os.path.getmtime(args.words) + 600 < os.path.getmtime(args.audio):
+        tts_exact, tts_words = False, []
+
+    # 1. exact word timings straight from the TTS engine (Edge): no transcription needed
+    if tts_exact and tts_words:
+        timed = align_to_script(tts_words, script_txt) if script_txt else tts_words
+        srt = timed_to_srt(timed, args.words_per_cue)
+        print(f"[generate_captions] exact TTS word timings: {len(timed)} words")
+
+    # 2. Whisper, then snap its words back to the script
+    if srt is None and not args.no_whisper and os.environ.get("OPENAI_API_KEY"):
         try:
             srt, timed = whisper_srt(args.audio, args.words_per_cue)
+            if script_txt:
+                timed = align_to_script(timed, script_txt)
+                srt = timed_to_srt(timed, args.words_per_cue)
         except Exception as e:
             print(f"[generate_captions] Whisper failed ({e}), using estimation fallback")
 
+    # 3. approximate TTS word timings (lines spread evenly)
+    if srt is None and tts_words:
+        timed = tts_words
+        srt = timed_to_srt(timed, args.words_per_cue)
+        print(f"[generate_captions] approximate TTS word timings: {len(timed)} words")
+
+    if srt is None and args.timeline and os.path.exists(args.timeline):
+        srt, timed = timeline_words(args.timeline)
+
     if srt is None:
-        script_txt = Path(args.script).read_text(encoding="utf-8")
         srt, timed = estimated_srt(script_txt, args.audio, args.words_per_cue, wps)
 
     os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
     Path(args.out).write_text(srt, encoding="utf-8")
     ass_path = os.path.splitext(args.out)[0] + ".ass"
-    Path(ass_path).write_text(words_to_ass(timed), encoding="utf-8")
+    Path(ass_path).write_text(words_to_ass(timed, args.highlight or HILITE), encoding="utf-8")
     print(f"[generate_captions] wrote {args.out} and {ass_path}")
 
 

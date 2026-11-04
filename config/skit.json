@@ -1,0 +1,62 @@
+{
+  "_comment": "Shared settings for the cartoon-skit format (scripts/generate_skit.py, generate_keyframes.py, generate_dialogue_tts.py, animate_shots.py, assemble_skit.py). Per-niche cast and locations live in config/niches/<niche>.json under 'skit'. Every paid provider has a free fallback, so a run never fails for lack of a key.",
+
+  "style": "Flat 2D cartoon in the style of a modern adult animated sitcom: thick clean black outlines, flat cel colours with one soft shadow tone, simple expressive faces with big readable eyes and eyebrows, slightly exaggerated proportions, bright but natural palette. The background is a detailed painted illustration drawn in clear perspective with foreground, midground and background depth and soft natural light. Vertical 9:16 frame.",
+
+  "cap_rule": "Every character wears a baseball cap with their name printed on the front in clean white capital letters.",
+
+  "frame_rule": "Characters stand in the lower two thirds of the frame, shown full body or knee-up. Keep the top 15% of the frame free of heads (sky, wall or ceiling) and keep the bottom 25% simple floor or ground with no important detail, because titles and subtitles go there. No speech bubbles, no captions, no watermarks, no text other than the cap names.",
+
+  "writer": {
+    "model": "gpt-4.1",
+    "min_shots": 10,
+    "max_shots": 14,
+    "min_words": 95,
+    "max_words": 165,
+    "max_line_words": 16,
+    "max_locations": 3
+  },
+
+  "images": {
+    "_comment": "provider: openai (GPT Image: tries openai_models in order, then the newest gpt-image model the account lists; uses OPENAI_API_KEY) | fal (FAL_KEY) | none (skip images; the doodle engine draws every shot). Env IMAGE_PROVIDER overrides. VERIFY: model ids/params against the provider docs if a call is rejected.",
+    "provider": "openai",
+    "openai_models": ["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"],
+    "openai_quality": "medium",
+    "openai_size_v2": "864x1536",
+    "openai_size": "1024x1536",
+    "fal_text_model": "fal-ai/nano-banana",
+    "fal_edit_model": "fal-ai/nano-banana/edit"
+  },
+
+  "video": {
+    "_comment": "provider: fal (image-to-video through fal.ai, needs FAL_KEY) | local (free: slow push-in + drift on the keyframe, no character motion). Env VIDEO_PROVIDER overrides. Swap fal_model for any fal image-to-video endpoint (Kling, Hailuo, Seedance...) and put its extra parameters in fal_args. VERIFY: model id/params on fal.ai.",
+    "provider": "fal",
+    "fal_model": "fal-ai/kling-video/v2.1/standard/image-to-video",
+    "fal_durations": [5, 10],
+    "fal_args": {"negative_prompt": "blurry, distorted face, extra fingers, morphing, text, subtitles, watermark, 3d render, photorealistic"},
+    "motion_suffix": "Keep the exact cartoon style, outlines and colours. Keep every character's design and cap text unchanged. The camera stays mostly still with a slow gentle push-in. Natural, readable body acting with weight; the speaking character's mouth moves as they talk.",
+    "max_parallel": 6,
+    "timeout_s": 900
+  },
+
+  "tts": {
+    "_comment": "Per-line voices from each character's 'voice' block. Engines are tried in order per line. 'openai' = gpt-4o-mini-tts with acting instructions (pennies per video); 'edge' = free Microsoft neural voices with exact word timings (no key; unofficial endpoint, so it can rate-limit); 'kokoro' and 'espeak' are free and offline; 'silent' writes silence (dry runs/tests only). The narrator tries the channel's cloned voice (styletts2) first.",
+    "engines": ["openai", "edge", "kokoro", "espeak"],
+    "openai_model": "gpt-4o-mini-tts",
+    "gap_s": 0.22,
+    "tail_s": 0.6
+  },
+
+  "edit": {
+    "fps": 24,
+    "width": 1080,
+    "height": 1920,
+    "title_seconds": 3.0,
+    "cta_text": "Follow for part 2",
+    "cta_seconds": 2.5,
+    "music_volume": 0.10,
+    "vignette": true,
+    "grain": 5,
+    "caption_highlight": "&H0033E633&"
+  }
+}

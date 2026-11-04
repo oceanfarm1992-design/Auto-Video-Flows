@@ -24,6 +24,11 @@ on:
         type: choice
         options: ["", "daily-short", "men-short", "power-short"]
         default: ""
+      format:
+        description: "men/power only: narrated or skit (blank = each niche config's 'format')"
+        type: choice
+        options: ["", "narrated", "skit"]
+        default: ""
 
 permissions:
   actions: write
@@ -37,6 +42,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SKIP_POST: ${{ github.event_name == 'workflow_dispatch' && inputs.skip_post || false }}
           FORCE_FLOW: ${{ inputs.force_flow }}
+          FORMAT: ${{ inputs.format }}
         run: |
           if [ -n "$FORCE_FLOW" ]; then
             WF="$FORCE_FLOW"
@@ -48,4 +54,6 @@ jobs:
             esac
           fi
           echo "Today's flow: $WF (skip_post=$SKIP_POST)"
-          gh workflow run "$WF.yml" -f skip_post="$SKIP_POST" --repo "${{ github.repository }}"
+          EXTRA=""
+          if [ -n "$FORMAT" ] && [ "$WF" != "daily-short" ]; then EXTRA="-f format=$FORMAT"; fi
+          gh workflow run "$WF.yml" -f skip_post="$SKIP_POST" $EXTRA --repo "${{ github.repository }}"
