@@ -95,7 +95,8 @@ def shot_prompt(niche: dict, skit: dict, shot: dict, ref_names: list[str]) -> st
                 if who else "")
     return (
         f"Reference images: {refs}. Draw ONE frame of the animated cartoon: {shot.get('framing', 'medium shot')}. "
-        f"{shot.get('action', '')}.{speaking} Keep every character's face, body shape, outfit, colours and "
+        f"{shot.get('action', '')}.{speaking}{positions_text(niche, ordered_cast(niche, shot.get('characters', [])))} "
+        "Keep every character's face, body shape, outfit, colours and "
         "the name on their cap exactly as in their reference image, and keep the location exactly as in "
         f"its reference. {style_block(skit)}"
     )
@@ -103,3 +104,86 @@ def shot_prompt(niche: dict, skit: dict, shot: dict, ref_names: list[str]) -> st
 
 def motion_prompt(skit: dict, shot: dict) -> str:
     return f"{shot.get('motion') or shot.get('action', '')}. {skit['video']['motion_suffix']}"
+
+
+# ── keyframe budget ───────────────────────────────────────────────────────────
+# Pictures are ~90% of a skit's cost, so a skit gets a small budget of unique keyframes:
+#   1. one MASTER per location: a medium-wide shot of everyone who appears there, standing
+#      in a fixed left-to-right order;
+#   2. the rest of the budget for KEY MOMENTS with their own acting: the hook (shot 0),
+#      close-ups, and the payoff (last character line).
+# Every other shot reuses its location's master with a virtual camera that pans/zooms onto the
+# speaker (a close-up is just a tighter crop), so the cast never drifts between shots.
+
+def ordered_cast(niche: dict, chars) -> list[str]:
+    """Characters in their fixed left-to-right order (cast order in the config, hero first)."""
+    order = [c for c in cast_of(niche) if c != "narrator"]
+    hero = niche["skit"].get("hero")
+    if hero in order:
+        order.remove(hero)
+        order.insert(0, hero)
+    return [c for c in order if c in set(chars)]
+
+
+def plan_keyframes(niche: dict, shots: list[dict], budget: int = 4) -> tuple[list[dict], list[dict]]:
+    """Return (jobs, views).
+    jobs:  [{"key", "kind": "master"|"moment", "location", "characters", "shot": index|None}]
+    views: one per shot: {"key", "focus": 0..1 (x position to frame), "zoom": end zoom}"""
+    jobs, master_of = [], {}
+    for s in shots:
+        loc = s["location"]
+        if loc in master_of:
+            continue
+        here = [c for t in shots if t["location"] == loc for c in t["characters"]]
+        top = sorted(set(here), key=lambda c: (-here.count(c), here.index(c)))[:3]
+        master_of[loc] = f"master_{loc}"
+        jobs.append({"key": master_of[loc], "kind": "master", "location": loc,
+                     "characters": ordered_cast(niche, top), "shot": None})
+
+    last_char = max((i for i, s in enumerate(shots) if s["speaker"] != "narrator"), default=0)
+    priority = [0] + [i for i, s in enumerate(shots) if "close" in s.get("framing", "").lower()] + [last_char]
+    moments = []
+    for i in priority:
+        if i not in moments and len(jobs) + len(moments) < max(budget, len(jobs)):
+            moments.append(i)
+    for i in moments:
+        s = shots[i]
+        jobs.append({"key": f"shot_{i:02d}", "kind": "moment", "location": s["location"],
+                     "characters": ordered_cast(niche, s["characters"]), "shot": i})
+
+    views = []
+    for i, s in enumerate(shots):
+        close = "close" in s.get("framing", "").lower()
+        if i in moments:
+            views.append({"key": f"shot_{i:02d}", "focus": 0.5, "zoom": 1.07})
+            continue
+        job = next(j for j in jobs if j["key"] == master_of[s["location"]])
+        chars = job["characters"]
+        target = s["speaker"] if s["speaker"] in chars else next((c for c in s["characters"] if c in chars), None)
+        if target is None or s["speaker"] == "narrator":
+            views.append({"key": job["key"], "focus": 0.5, "zoom": 1.06})
+            continue
+        k = chars.index(target)
+        focus = (k + 0.5) / len(chars)
+        single = {1: 1.1, 2: 1.35}.get(len(chars), 1.5)    # isolate the speaker in the wide frame
+        views.append({"key": job["key"], "focus": round(focus, 3), "zoom": 1.9 if close else single})
+    return jobs, views
+
+
+def positions_text(niche: dict, chars: list[str]) -> str:
+    if len(chars) < 2:
+        return ""
+    names = ", ".join(label(niche, c) for c in chars)
+    return f" Positions from left to right: {names}, each clearly separated."
+
+
+def master_prompt(niche: dict, skit: dict, location: str, chars: list[str], ref_names: list[str]) -> str:
+    refs = "; ".join(f"image {i + 1} is {n}" for i, n in enumerate(ref_names))
+    who = " and ".join(label(niche, c) for c in chars)
+    return (
+        f"Reference images: {refs}. Draw ONE frame of the animated cartoon: a medium-wide shot of {who} "
+        f"standing in the {location.replace('_', ' ')}, turned slightly toward each other mid-conversation, "
+        f"relaxed neutral expressions, full figures visible.{positions_text(niche, chars)} Keep every "
+        "character's face, body shape, outfit, colours and the name on their cap exactly as in their reference "
+        f"image, and keep the location exactly as in its reference. {style_block(skit)}"
+    )

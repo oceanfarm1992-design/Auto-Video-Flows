@@ -219,9 +219,12 @@ Posting, release upload and history logging are the same steps as the narrated f
 Repo variables (Settings → Variables) `IMAGE_PROVIDER` (`openai` | `fal` | `none`) and `VIDEO_PROVIDER`
 (`fal` | `local`) override `config/skit.json` without a commit.
 
-**Cost per skit** is roughly 12 images plus 12 short video clips. Check the current gpt-image and fal model
-prices before switching a daily series over. `IMAGE_PROVIDER=none` + `VIDEO_PROVIDER=local` runs a skit with
-zero paid image or video calls (doodle visuals).
+**Cost per skit (low-cost defaults):** about 4 low-quality pictures (one master per location, plus the
+hook, close-ups and payoff) and roughly 6¢ of text, voice and captions, so about **$0.10–0.20 per video**
+with no fal.ai key. Every other line reuses its location's master: a virtual camera pans and zooms onto the
+speaker, and close-ups are tighter crops. Tune it in `config/skit.json → images`: `openai_quality` (`low` /
+`medium`), `max_keyframes` (or the `MAX_KEYFRAMES` env var) and `ref_max_side`. Adding `FAL_KEY` animates
+every shot on fal.ai, which costs several dollars per skit. `IMAGE_PROVIDER=none` makes a free doodle skit.
 
 ### Techniques adopted from MoneyPrinterTurbo
 
