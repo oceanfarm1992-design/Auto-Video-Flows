@@ -1,18 +1,21 @@
 name: rotate-short
 
-# Single daily trigger for the whole pipeline: one video/day total, rotating
-# between men-short and power-short, instead of running them on their own
-# schedules. daily-short (historical/trending figures) is no longer run
-# automatically — the workflow file is kept for manual `workflow_dispatch`
-# runs only (or use rotate-short's force_flow input).
+# Single trigger for the whole pipeline: ONE VIDEO EVERY 2ND DAY in total,
+# alternating men-short and power-short (so each series posts every 4th day).
+# daily-short (historical/trending figures) is no longer run automatically;
+# the workflow file is kept for manual `workflow_dispatch` runs only (or use
+# rotate-short's force_flow input).
 #
-# Rotation key = days since the Unix epoch, mod 2 — deterministic, no state
-# to store:
-#   0 -> men-short   1 -> power-short
+# The cron fires daily at 14:00 UTC; the job decides from the days since the
+# Unix epoch (deterministic, no state, no month-boundary glitches like "*/2"):
+#   day odd            -> rest day, nothing runs
+#   day even, (day/2) even -> men-short
+#   day even, (day/2) odd  -> power-short
+# A manual run (workflow_dispatch) always runs, using the same alternation.
 
 on:
   schedule:
-    - cron: "0 14 * * *"   # 14:00 UTC, once/day
+    - cron: "0 14 * * *"   # 14:00 UTC daily; the job posts only on every 2nd day
   workflow_dispatch:
     inputs:
       skip_post:
@@ -44,11 +47,15 @@ jobs:
           FORCE_FLOW: ${{ inputs.force_flow }}
           FORMAT: ${{ inputs.format }}
         run: |
+          DAY=$(( $(date -u +%s) / 86400 ))
           if [ -n "$FORCE_FLOW" ]; then
             WF="$FORCE_FLOW"
           else
-            DAY_INDEX=$(( $(date -u +%s) / 86400 % 2 ))
-            case $DAY_INDEX in
+            if [ "${{ github.event_name }}" = "schedule" ] && [ $(( DAY % 2 )) -ne 0 ]; then
+              echo "Rest day (one video every 2nd day). Next video tomorrow."
+              exit 0
+            fi
+            case $(( DAY / 2 % 2 )) in
               0) WF="men-short" ;;
               1) WF="power-short" ;;
             esac

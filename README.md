@@ -165,18 +165,17 @@ Extra repo secrets (add in GitHub → Settings → Secrets → Actions): `BUFFER
 
 Test without posting: `gh workflow run men-short.yml -f skip_post=true`.
 
-### Schedule: one video/day, rotating flows
+### Schedule: one video every 2nd day, rotating flows
 
-`men-short.yml` and `power-short.yml` have no schedule of their own anymore —
-`.github/workflows/rotate-short.yml` runs once a day at **14:00 UTC** and triggers
-exactly one of them, in rotation:
+`men-short.yml` and `power-short.yml` have no schedule of their own. `.github/workflows/rotate-short.yml`
+fires daily at **14:00 UTC**, but it only triggers a video **every 2nd day**, alternating between them:
 
 ```
-day 1 -> men-short    day 2 -> power-short    day 3 -> men-short  ...
+day 1 -> men-short    day 2 -> rest    day 3 -> power-short    day 4 -> rest    day 5 -> men-short ...
 ```
 
-The rotation key is `(days since epoch) % 2`, so it's deterministic with nothing to
-store. Force a specific flow (e.g. for testing) with
+The key is the number of days since the Unix epoch (odd = rest day; on even days `(day/2) % 2` picks the
+series), so it's deterministic with nothing to store. A manual run always produces a video. Force a specific flow (e.g. for testing) with
 `gh workflow run rotate-short.yml -f force_flow=men-short -f skip_post=true`.
 
 `daily-short.yml` (the original historical/trending-figure series) is **no longer run
@@ -204,7 +203,8 @@ each topic in 10-14 shots, and the narrator (the channel's cloned voice) closes 
 Posting, release upload and history logging are the same steps as the narrated format.
 
 **Live:** both series (`men_psychology`, `power_psychology`) run in the skit format with the sad piano music.
-`rotate-short.yml` posts one video a day at 14:00 UTC, alternating series, so each series posts every 2nd day.
+`rotate-short.yml` posts **one video every 2nd day** (14:00 UTC), alternating series, so each series posts every
+4th day. The days in between are rest days.
 
 ### Turning it on
 
