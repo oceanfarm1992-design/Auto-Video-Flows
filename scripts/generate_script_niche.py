@@ -170,6 +170,9 @@ Return ONLY valid JSON (no markdown, no code fences) shaped like this:
 
 
 def call_openai(client: OpenAI, prompt: str, model: str) -> dict:
+    from llm import chat_json, load_cfg
+    if os.environ.get("OPENROUTER_API_KEY") and "narrated_script" in load_cfg().get("openrouter_tasks", []):
+        return chat_json(SYSTEM_PROMPT, prompt, openai_model=model, max_tokens=2600, task="narrated_script")[0]
     kwargs = dict(
         model=model,
         messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],

@@ -219,6 +219,12 @@ Posting, release upload and history logging are the same steps as the narrated f
 Repo variables (Settings → Variables) `IMAGE_PROVIDER` (`openai` | `fal` | `none`) and `VIDEO_PROVIDER`
 (`fal` | `local`) override `config/skit.json` without a commit.
 
+**Free script writing (OpenRouter):** add the `OPENROUTER_API_KEY` secret and skits are written by free
+OpenRouter models (`scripts/llm.py`, `config/llm.json`), with GPT-4.1 as the automatic fallback when the free
+tier is rate-limited (20/min, 50/day) or a free model returns unusable JSON. `script.json → writer` records
+which model wrote each video. The live narrated series stays on GPT-4.1 unless you add `"narrated_script"`
+to `openrouter_tasks`.
+
 **Cost per skit (low-cost defaults):** about 4 low-quality pictures (one master per location, plus the
 hook, close-ups and payoff) and roughly 6¢ of text, voice and captions, so about **$0.10–0.20 per video**
 with no fal.ai key. Every other line reuses its location's master: a virtual camera pans and zooms onto the
