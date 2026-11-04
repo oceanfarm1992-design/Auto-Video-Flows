@@ -17,7 +17,7 @@
     "max_seconds": 90
   },
 
-  "format": "narrated",
+  "format": "skit",
 
   "skit": {
     "_comment": "Cartoon-skit format (format: skit). A recurring cast with name caps acts out each topic as a short dialogue scene; the narrator (the channel owner's cloned voice) closes with the psychology insight. Character sheets and location plates are generated once and cached in assets/skit/men_psychology/, so the cast looks the same in every video.",

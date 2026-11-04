@@ -94,15 +94,19 @@ def fal_wait(key: str, jobs: dict, timeout_s: int) -> dict:
 
 # ── free fallbacks ───────────────────────────────────────────────────────────
 
-def local_motion(image: str, dest: str, duration: float, idx: int, fps: int = 24) -> None:
-    """Slow push-in (1.00 -> 1.07) with a slight sideways drift, alternating direction per shot.
+def local_motion(image: str, dest: str, duration: float, idx: int, fps: int = 24,
+                 focus: float = 0.5, zoom: float = 1.07) -> None:
+    """Virtual camera on a still keyframe: frame `focus` (0 = left edge, 1 = right edge) at a
+    zoom that pushes in slowly to `zoom`. A shared location master becomes a different shot
+    per speaker this way (zoom ~1.18 = medium single, ~1.55 = close-up on the face).
     Rendered from a 2x canvas so the zoom doesn't stair-step."""
     frames = max(2, int(round(duration * fps)) + fps)          # one spare second for the editor
-    drift = "+" if idx % 2 == 0 else "-"
+    z0 = max(1.0, zoom - 0.06)
+    yc = 0.5 - (zoom - 1.0) * 0.2                               # tighter shots frame the faces
     vf = (
         "scale=2160:3840:force_original_aspect_ratio=increase,crop=2160:3840,"
-        f"zoompan=z='1+0.07*on/{frames}':"
-        f"x='iw/2-(iw/zoom/2){drift}40*on/{frames}':y='ih/2-(ih/zoom/2)':"
+        f"zoompan=z='{z0}+{zoom - z0:.4f}*on/{frames}':"
+        f"x='clip(iw*{focus:.4f}-iw/zoom/2,0,iw-iw/zoom)':y='clip(ih*{yc:.4f}-ih/zoom/2,0,ih-ih/zoom)':"
         f"d={frames}:s=1080x1920:fps={fps},setsar=1,format=yuv420p"
     )
     subprocess.run(["ffmpeg", "-y", "-v", "error", "-loop", "1", "-i", image, "-vf", vf,
@@ -155,9 +159,14 @@ def main() -> None:
     vcfg, fps = skit["video"], int(skit["edit"]["fps"])
     data = load_script(args.script)
     timeline = json.loads(Path(args.timeline).read_text(encoding="utf-8"))["lines"]
-    frames = {}
+    frames, views, lips = {}, {}, {}
     if Path(args.keyframes).exists():
-        frames = {k["index"]: k["file"] for k in json.loads(Path(args.keyframes).read_text()) if k.get("file")}
+        for k in json.loads(Path(args.keyframes).read_text()):
+            if k.get("file"):
+                frames[k["index"]] = k["file"]
+                views[k["index"]] = (float(k.get("focus", 0.5)), float(k.get("zoom", 1.07)))
+                if k.get("open_file") and k.get("mouth"):
+                    lips[k["index"]] = (k["open_file"], k["mouth"])
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -195,7 +204,7 @@ def main() -> None:
                     print(f"[animate] shot {i:02d}: download failed ({exc})", file=sys.stderr)
 
     track = None
-    if any(i not in results and i not in frames for i in range(len(data["shots"]))):
+    if any(i not in results and (i not in frames or i in lips) for i in range(len(data["shots"]))):
         from doodle_skit import load_track
         track = load_track(str(Path(args.timeline).parent))
     for i, shot in enumerate(data["shots"]):
@@ -203,7 +212,19 @@ def main() -> None:
             continue
         dest = str(out / f"shot_{i:02d}.mp4")
         if i in frames:
-            local_motion(frames[i], dest, durs[i], i, fps)
+            focus, zoom = views.get(i, (0.5, 1.07))
+            if i in lips:
+                from mouth_flaps import render_talking
+                open_file, box = lips[i]
+                try:
+                    n_open = render_talking(frames[i], open_file, box, dest, durs[i], fps, focus, zoom,
+                                            track, timeline[i]["shot_start"])
+                    results[i] = (dest, "lipsync")
+                    print(f"[animate] shot {i:02d}: lip sync ({n_open} open-mouth frames)")
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[animate] shot {i:02d}: lip sync failed ({exc}); still picture", file=sys.stderr)
+            local_motion(frames[i], dest, durs[i], i, fps, focus, zoom)
             results[i] = (dest, "local")
         else:
             doodle_clip(niche, shot, dest, timeline[i]["shot_start"], durs[i], i, track)
@@ -212,7 +233,7 @@ def main() -> None:
     manifest = [{"index": i, "file": results[i][0], "duration": round(durs[i], 3), "source": results[i][1]}
                 for i in range(len(data["shots"]))]
     Path("build/skit_clips.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    counts = {s: sum(1 for m in manifest if m["source"] == s) for s in ("fal", "local", "doodle")}
+    counts = {s: sum(1 for m in manifest if m["source"] == s) for s in ("fal", "lipsync", "local", "doodle")}
     print(f"[animate] clips ready: {counts}")
 
 

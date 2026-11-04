@@ -119,8 +119,10 @@ def main() -> None:
     if music:
         cmd += ["-stream_loop", "-1", "-i", music]
         vol = float(ecfg.get("music_volume", 0.1))
-        afilter = (f"{voice}[va];[2:a]volume={vol},afade=t=in:st=0:d=1,"
-                   f"afade=t=out:st={max(0.0, total - 1.5):.2f}:d=1.5[mu];"
+        # the music ducks under the dialogue and swells back in the pauses (sidechain compression)
+        afilter = (f"{voice},asplit=2[va][vkey];[2:a]volume={vol},afade=t=in:st=0:d=1,"
+                   f"afade=t=out:st={max(0.0, total - 1.5):.2f}:d=1.5[mu0];"
+                   "[mu0][vkey]sidechaincompress=threshold=0.03:ratio=4:attack=40:release=700:makeup=1[mu];"
                    "[va][mu]amix=inputs=2:duration=first:normalize=0[aout]")
     else:
         afilter = voice + "[aout]"

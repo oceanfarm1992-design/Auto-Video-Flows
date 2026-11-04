@@ -85,4 +85,36 @@ except RuntimeError:
     pass
 check("a missing model is not retried", n["k"] == 1)
 
+# ── keyframe budget planner ──────────────────────────────────────────────────
+import skit_common as sc  # noqa: E402
+
+niche, _ = sc.load_configs("config/niches/men_psychology.json")
+
+
+def sh(spk, loc, chars, framing="medium two-shot"):
+    return {"speaker": spk, "location": loc, "characters": chars, "framing": framing, "line": "x"}
+
+
+shots = ([sh("the_wife", "kitchen", ["the_wife", "the_provider"])]
+         + [sh(c, "kitchen", ["the_wife", "the_provider"]) for c in ("the_provider", "the_wife") * 3]
+         + [sh("the_provider", "kitchen", ["the_provider"], "close-up on The Provider")]
+         + [sh("the_kid", "living_room", ["the_kid", "the_provider"]), sh("the_provider", "living_room", ["the_provider", "the_kid"])]
+         + [sh("narrator", "living_room", ["the_provider", "the_kid"])])
+jobs, views = sc.plan_keyframes(niche, shots, budget=4)
+check("budget respected: 4 unique pictures for 11 shots", len(jobs) == 4 and len(views) == len(shots))
+check("one master per location", sum(j["kind"] == "master" for j in jobs) == 2)
+check("hook shot gets its own picture", views[0]["key"] == "shot_00")
+check("hero stands on the left of every master",
+      all(j["characters"][0] == "the_provider" for j in jobs if j["kind"] == "master"))
+kitchen = [v for v, s in zip(views, shots) if v["key"] == "master_kitchen"]
+check("reused master shots frame the speaker (left vs right)",
+      any(v["focus"] < 0.5 for v in kitchen) and any(v["focus"] > 0.5 for v in kitchen))
+check("narrator shot shows the whole master", views[-1]["focus"] == 0.5 and views[-1]["zoom"] < 1.1)
+j2, v2 = sc.plan_keyframes(niche, shots, budget=1)
+check("budget below the number of locations still gives every location a master",
+      {j["kind"] for j in j2} == {"master"} and len(j2) == 2)
+check("prompt pins left-to-right positions", "left to right: The Provider, The Wife"
+      in sc.master_prompt(niche, {"style": "", "cap_rule": "", "frame_rule": ""}, "kitchen",
+                          ["the_provider", "the_wife"], ["a", "b", "c"]))
+
 sys.exit(1 if FAILED else 0)

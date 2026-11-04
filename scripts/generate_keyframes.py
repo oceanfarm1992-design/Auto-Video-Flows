@@ -40,7 +40,7 @@ import requests
 from PIL import Image
 
 from skit_common import (asset_dir, cast_of, character_sheet_prompt, label, load_configs, load_script,
-                         location_plate_prompt, shot_prompt)
+                         location_plate_prompt, master_prompt, mouth_open_prompt, plan_keyframes, shot_prompt)
 
 
 # ── providers ────────────────────────────────────────────────────────────────
@@ -112,7 +112,10 @@ class OpenAIImages:
             return base64.b64decode(r.data[0].b64_json)
         return self._call(go)
 
-    def edit(self, prompt: str, refs: list[Path]) -> bytes:
+    def edit(self, prompt: str, refs: list[Path], shrink: bool = True) -> bytes:
+        if shrink:   # full size only when the output must line up with the input (mouth variants)
+            refs = small_refs(refs, int(self.cfg.get("ref_max_side", 768)))
+
         def go(m):
             files = [open(p, "rb") for p in refs]
             try:
@@ -123,6 +126,21 @@ class OpenAIImages:
                     f.close()
             return base64.b64decode(r.data[0].b64_json)
         return self._call(go)
+
+
+def small_refs(refs: list[Path], max_side: int) -> list[Path]:
+    """Reference images are billed as input tokens by size: send small copies (cached in build/refs)."""
+    out = []
+    d = Path("build/refs")
+    d.mkdir(parents=True, exist_ok=True)
+    for p in refs:
+        dest = d / f"{Path(p).parent.name}_{Path(p).stem}_{max_side}.png"
+        if not dest.exists():
+            im = Image.open(p).convert("RGB")
+            im.thumbnail((max_side, max_side))
+            im.save(dest, "PNG")
+        out.append(dest)
+    return out
 
 
 def data_uri(path: Path, max_side: int = 900) -> str:
@@ -158,7 +176,7 @@ class FalImages:
         return self._run(self.text_model, {"prompt": prompt, "num_images": 1, "aspect_ratio": "9:16",
                                            "output_format": "png"})
 
-    def edit(self, prompt: str, refs: list[Path]) -> bytes:
+    def edit(self, prompt: str, refs: list[Path], shrink: bool = True) -> bytes:
         return self._run(self.edit_model, {"prompt": prompt, "image_urls": [data_uri(p) for p in refs],
                                            "num_images": 1, "aspect_ratio": "9:16", "output_format": "png"})
 
@@ -229,27 +247,75 @@ def ensure_assets(provider, niche: dict, skit: dict, char_ids: list[str], loc_id
 
 # ── shots ────────────────────────────────────────────────────────────────────
 
-def make_shot(provider, niche: dict, skit: dict, i: int, shot: dict, assets: dict, out_dir: Path) -> str | None:
-    dest = out_dir / f"shot_{i:02d}.png"
+def make_job(provider, niche: dict, skit: dict, job: dict, shots: list[dict], assets: dict,
+             out_dir: Path) -> str | None:
+    """Draw one planned keyframe (a location master or a key moment)."""
+    dest = out_dir / f"{job['key']}.png"
     if dest.exists():
         return str(dest)
     refs, names = [], []
-    if shot["location"] in assets:
-        refs.append(assets[shot["location"]])
-        names.append(f"the location ({shot['location'].replace('_', ' ')})")
-    for cid in shot["characters"]:
+    if job["location"] in assets:
+        refs.append(assets[job["location"]])
+        names.append(f"the location ({job['location'].replace('_', ' ')})")
+    for cid in job["characters"]:
         if cid in assets:
             refs.append(assets[cid])
             names.append(f"the character {label(niche, cid)}")
     if provider is None or not refs:
         return None
-    prompt = shot_prompt(niche, skit, shot, names)
+    if job["kind"] == "master":
+        prompt = master_prompt(niche, skit, job["location"], job["characters"], names)
+    else:
+        prompt = shot_prompt(niche, skit, shots[job["shot"]], names)
     try:
         save_png(with_retry(lambda: provider.edit(prompt, refs)), dest)
-        print(f"[keyframes] shot {i:02d} done")
+        print(f"[keyframes] {job['key']} done")
         return str(dest)
     except Exception as exc:  # noqa: BLE001
-        print(f"[keyframes] shot {i:02d} failed, doodle fallback: {exc}", file=sys.stderr)
+        print(f"[keyframes] {job['key']} failed: {exc}", file=sys.stderr)
+        return None
+
+
+def mouth_hints(niche: dict, chars: list[str], image: str) -> list | None:
+    """Where each character's mouth is, per a vision model (free OpenRouter VL first, then
+    gpt-4.1-mini, ~0.1 cent). Only used to pick the right changed region; None if unavailable."""
+    from llm import vision_json
+    from skit_common import mouth_points_prompt
+    try:
+        data, used = vision_json(mouth_points_prompt(niche, chars), image)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[keyframes] no mouth hints ({str(exc)[:120]})", file=sys.stderr)
+        return None
+    out = []
+    for c in chars:
+        v = data.get(c)
+        ok = isinstance(v, (list, tuple)) and len(v) == 2 and all(isinstance(t, (int, float)) for t in v) \
+            and all(0 <= t <= 1 for t in v)
+        out.append((float(v[0]), float(v[1])) if ok else None)
+    print(f"[keyframes] mouth hints from {used}: {dict(zip(chars, out))}")
+    return out
+
+
+def make_mouth_variant(provider, niche: dict, job: dict, closed: str, out_dir: Path) -> dict | None:
+    """Open-mouth edit of a keyframe + where each character's mouth is (mouth_flaps.py)."""
+    from mouth_flaps import aligned_open, assign_mouths, detect_mouths
+    dest = out_dir / f"{job['key']}_open.png"
+    try:
+        if not dest.exists():
+            save_png(with_retry(lambda: provider.edit(mouth_open_prompt(niche, job["characters"]),
+                                                      [Path(closed)], shrink=False)), dest)
+        base = Image.open(closed).convert("RGB")
+        hints = mouth_hints(niche, job["characters"], closed)
+        boxes = detect_mouths(base, aligned_open(base, Image.open(dest)), len(job["characters"]), hints=hints)
+        mouths = assign_mouths(boxes, job["characters"], base.width)
+        from mouth_flaps import debug_overlay
+        debug_overlay(base, mouths, str(out_dir / f"{job['key']}_mouths.jpg"))
+        missing = [c for c in job["characters"] if c not in mouths]
+        print(f"[keyframes] {job['key']}: mouths found for {sorted(mouths) or 'nobody'}"
+              + (f"; not found: {missing}" if missing else ""))
+        return {"open_file": str(dest), "mouths": mouths}
+    except Exception as exc:  # noqa: BLE001 - lip sync is an extra; the still picture still works
+        print(f"[keyframes] {job['key']}: no mouth variant ({exc})", file=sys.stderr)
         return None
 
 
@@ -274,20 +340,43 @@ def main() -> None:
 
     data = load_script(args.script)
     shots = data["shots"]
-    chars = sorted({c for s in shots for c in s["characters"]})
-    locs = sorted({s["location"] for s in shots})
+    budget = int(os.environ.get("MAX_KEYFRAMES") or skit["images"].get("max_keyframes", 4))
+    jobs, views = plan_keyframes(niche, shots, budget)
+    chars = sorted({c for j in jobs for c in j["characters"]})
+    locs = sorted({j["location"] for j in jobs})
     assets = ensure_assets(provider, niche, skit, chars, locs)
 
     out_dir = Path(args.out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     with ThreadPoolExecutor(max(1, args.workers)) as pool:
-        files = list(pool.map(lambda a: make_shot(provider, niche, skit, a[0], a[1], assets, out_dir),
-                              enumerate(shots)))
-    manifest = [{"index": i, "file": f} for i, f in enumerate(files)]
+        made = dict(zip([j["key"] for j in jobs],
+                        pool.map(lambda j: make_job(provider, niche, skit, j, shots, assets, out_dir), jobs)))
+    lips = {}
+    if provider is not None and skit["images"].get("lipsync", True):
+        todo = [j for j in jobs if made.get(j["key"])]
+        with ThreadPoolExecutor(max(1, args.workers)) as pool:
+            for j, res in zip(todo, pool.map(lambda j: make_mouth_variant(provider, niche, j, made[j["key"]], out_dir),
+                                             todo)):
+                if res:
+                    lips[j["key"]] = res
+    # a failed key moment falls back to its location's master; a failed master leaves its shots
+    # to the doodle renderer
+    manifest = []
+    for i, v in enumerate(views):
+        f = made.get(v["key"])
+        if not f and v["key"].startswith("shot_"):
+            f = made.get(f"master_{shots[i]['location']}")
+            v = {"key": f"master_{shots[i]['location']}", "focus": 0.5, "zoom": 1.12}
+        lip = lips.get(v["key"], {})
+        manifest.append({"index": i, "file": f, "key": v["key"], "focus": v["focus"], "zoom": v["zoom"],
+                         "speaker": shots[i]["speaker"], "open_file": lip.get("open_file"),
+                         "mouth": lip.get("mouths", {}).get(shots[i]["speaker"])})
     Path("build").mkdir(exist_ok=True)
     Path("build/keyframes.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    ok = sum(1 for f in files if f)
-    print(f"[keyframes] {ok}/{len(shots)} keyframes drawn"
+    ok = sum(1 for m in manifest if m["file"])
+    drawn = sum(1 for f in made.values() if f)
+    print(f"[keyframes] {drawn}/{len(jobs)} unique pictures drawn (budget {budget}) for {len(shots)} shots; "
+          f"{ok}/{len(shots)} shots covered"
           + ("" if ok == len(shots) else f"; {len(shots) - ok} shot(s) will use the doodle fallback"))
 
 

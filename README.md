@@ -165,18 +165,17 @@ Extra repo secrets (add in GitHub → Settings → Secrets → Actions): `BUFFER
 
 Test without posting: `gh workflow run men-short.yml -f skip_post=true`.
 
-### Schedule: one video/day, rotating flows
+### Schedule: one video every 2nd day, rotating flows
 
-`men-short.yml` and `power-short.yml` have no schedule of their own anymore —
-`.github/workflows/rotate-short.yml` runs once a day at **14:00 UTC** and triggers
-exactly one of them, in rotation:
+`men-short.yml` and `power-short.yml` have no schedule of their own. `.github/workflows/rotate-short.yml`
+fires daily at **14:00 UTC**, but it only triggers a video **every 2nd day**, alternating between them:
 
 ```
-day 1 -> men-short    day 2 -> power-short    day 3 -> men-short  ...
+day 1 -> men-short    day 2 -> rest    day 3 -> power-short    day 4 -> rest    day 5 -> men-short ...
 ```
 
-The rotation key is `(days since epoch) % 2`, so it's deterministic with nothing to
-store. Force a specific flow (e.g. for testing) with
+The key is the number of days since the Unix epoch (odd = rest day; on even days `(day/2) % 2` picks the
+series), so it's deterministic with nothing to store. A manual run always produces a video. Force a specific flow (e.g. for testing) with
 `gh workflow run rotate-short.yml -f force_flow=men-short -f skip_post=true`.
 
 `daily-short.yml` (the original historical/trending-figure series) is **no longer run
@@ -203,6 +202,10 @@ each topic in 10-14 shots, and the narrator (the channel's cloned voice) closes 
 
 Posting, release upload and history logging are the same steps as the narrated format.
 
+**Live:** both series (`men_psychology`, `power_psychology`) run in the skit format with the sad piano music.
+`rotate-short.yml` posts **one video every 2nd day** (14:00 UTC), alternating series, so each series posts every
+4th day. The days in between are rest days.
+
 ### Turning it on
 
 1. **Optional but recommended:** add the `FAL_KEY` secret (https://fal.ai, pay per clip) for real character
@@ -219,9 +222,18 @@ Posting, release upload and history logging are the same steps as the narrated f
 Repo variables (Settings → Variables) `IMAGE_PROVIDER` (`openai` | `fal` | `none`) and `VIDEO_PROVIDER`
 (`fal` | `local`) override `config/skit.json` without a commit.
 
-**Cost per skit** is roughly 12 images plus 12 short video clips. Check the current gpt-image and fal model
-prices before switching a daily series over. `IMAGE_PROVIDER=none` + `VIDEO_PROVIDER=local` runs a skit with
-zero paid image or video calls (doodle visuals).
+**Free script writing (OpenRouter):** add the `OPENROUTER_API_KEY` secret and skits are written by free
+OpenRouter models (`scripts/llm.py`, `config/llm.json`), with GPT-4.1 as the automatic fallback when the free
+tier is rate-limited (20/min, 50/day) or a free model returns unusable JSON. `script.json → writer` records
+which model wrote each video. The live narrated series stays on GPT-4.1 unless you add `"narrated_script"`
+to `openrouter_tasks`.
+
+**Cost per skit (low-cost defaults):** about 4 low-quality pictures (one master per location, plus the
+hook, close-ups and payoff) and roughly 6¢ of text, voice and captions, so about **$0.10–0.20 per video**
+with no fal.ai key. Every other line reuses its location's master: a virtual camera pans and zooms onto the
+speaker, and close-ups are tighter crops. Tune it in `config/skit.json → images`: `openai_quality` (`low` /
+`medium`), `max_keyframes` (or the `MAX_KEYFRAMES` env var) and `ref_max_side`. Adding `FAL_KEY` animates
+every shot on fal.ai, which costs several dollars per skit. `IMAGE_PROVIDER=none` makes a free doodle skit.
 
 ### Techniques adopted from MoneyPrinterTurbo
 
@@ -238,6 +250,26 @@ rewritten for this pipeline:
   A transcript that doesn't resemble the script is left alone.
 - **Downloaded AI clips are validated** (`animate_shots.valid_video`): every fal.ai clip is fully decoded before
   use. A truncated or empty clip is downloaded again, then replaced by the free push-in if still broken.
+
+### Sad piano music
+
+Both formats now use a **sad solo-piano piece composed and synthesized for each run**
+(`scripts/generate_piano.py`, called by `generate_music.py`). It needs no samples and no API, and has no
+copyright issues. Each note is synthesized as a piano string with inharmonic partials, two slightly detuned
+strings, a hammer attack, pedal sustain and room reverb. The music is in a minor key at 52–62 BPM, using sad
+progressions (i–VI–III–VII, i–VI–iv–V…): a broken-chord left hand, a repeated and varied right-hand motif, an
+intro, the theme an octave higher, and an outro ending on the tonic. The seed follows the GitHub run, so every
+video gets a different piece. In skits the piano ducks under the dialogue and swells back in the pauses.
+Switch back to the old ambient pad with `config/music.json → "style": "pad"`. Tracks in `assets/music/`
+still win over both.
+
+### Mouth flaps on AI pictures
+
+With `images.lipsync` on (default), every AI keyframe gets one extra low-quality image edit with everyone's
+mouth open (about 1–2¢). `scripts/mouth_flaps.py` aligns the two pictures, finds each character's mouth (the
+compact regions that turned dark), and while a character speaks it swaps in only their mouth from the open
+picture, timed by the lip-sync track (Rhubarb on CI). The rest of the frame stays pixel-identical, and
+listeners keep their mouths closed. If a mouth can't be found, that shot falls back to the still picture.
 
 ### Free doodle skits with lip sync
 

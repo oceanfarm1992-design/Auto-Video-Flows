@@ -181,17 +181,15 @@ def validate(data: dict, niche: dict, skit: dict) -> list[str]:
     return issues
 
 
+WRITERS: list[str] = []   # which provider/model wrote each draft (logged into script.json)
+
+
 def call_openai(client, prompt: str, model: str) -> dict:
-    kwargs = dict(model=model, response_format={"type": "json_object"},
-                  messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}])
-    if model.startswith("gpt-5") and "chat" not in model:
-        kwargs["max_completion_tokens"] = 10000
-        kwargs["reasoning_effort"] = os.environ.get("SCRIPT_REASONING", "low")
-    else:
-        kwargs["max_tokens"] = 4000
-        kwargs["temperature"] = 0.9
-    resp = client.chat.completions.create(**kwargs)
-    return json.loads(resp.choices[0].message.content)
+    """Free OpenRouter model first when OPENROUTER_API_KEY is set, else/then OpenAI `model`."""
+    from llm import chat_json
+    data, used = chat_json(SYSTEM_PROMPT, prompt, openai_model=model, max_tokens=4000, task="skit_script")
+    WRITERS.append(used)
+    return data
 
 
 def generate(client, niche: dict, skit: dict, topic: str, model: str, keywords: list[str]) -> dict:
@@ -269,9 +267,8 @@ def main() -> None:
     ap.add_argument("--out", default="build")
     args = ap.parse_args()
 
-    if not os.environ.get("OPENAI_API_KEY"):
-        sys.exit("OPENAI_API_KEY environment variable not set.")
-    from openai import OpenAI
+    if not (os.environ.get("OPENAI_API_KEY") or os.environ.get("OPENROUTER_API_KEY")):
+        sys.exit("Set OPENROUTER_API_KEY (free models) and/or OPENAI_API_KEY.")
     from generate_script_ai import write_platform_captions
 
     niche, skit = load_configs(args.niche, args.skit_config)
@@ -282,7 +279,8 @@ def main() -> None:
     model = args.model or skit["writer"]["model"]
     print(f"[generate_skit] {niche['id']} | topic: {topic} | model: {model}")
 
-    data = normalise(generate(OpenAI(), niche, skit, topic, model, keywords), niche, topic)
+    data = normalise(generate(None, niche, skit, topic, model, keywords), niche, topic)
+    data["writer"] = WRITERS[-1] if WRITERS else ""
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

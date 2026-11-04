@@ -70,6 +70,7 @@ jobs:
         if: steps.fmt.outputs.format == 'narrated'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.OPENROUTER_API }}
           TOPIC_INDEX: ${{ inputs.topic_index }}
         run: |
           TOPIC_ARG=""
@@ -129,10 +130,11 @@ jobs:
         run: python scripts/assemble_video.py --config "$NICHE_CFG"
 
       # ── skit format (recurring cartoon cast, dialogue, AI keyframes + image-to-video) ──
-      - name: "Skit: write the skit (OpenAI GPT)"
+      - name: "Skit: write the skit (free OpenRouter model, OpenAI fallback)"
         if: steps.fmt.outputs.format == 'skit'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.OPENROUTER_API }}
           TOPIC_INDEX: ${{ inputs.topic_index }}
         run: |
           TOPIC_ARG=""
@@ -148,6 +150,7 @@ jobs:
         if: steps.fmt.outputs.format == 'skit'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.OPENROUTER_API }}
         run: |
           ok() { python -c "import json,sys;v=json.load(open('build/factcheck.json')).get('verdict','');sys.exit(0 if v in ('pass','skipped_no_claims','error') else 1)"; }
           if ! python scripts/factcheck_script.py || ! ok; then
@@ -175,6 +178,7 @@ jobs:
         if: steps.fmt.outputs.format == 'skit'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.OPENROUTER_API }}
           FAL_KEY: ${{ secrets.FAL_KEY }}
           IMAGE_PROVIDER: ${{ vars.IMAGE_PROVIDER }}
         run: python scripts/generate_keyframes.py --niche "$NICHE_CFG"
@@ -202,8 +206,10 @@ jobs:
         if: steps.fmt.outputs.format == 'skit'
         run: python scripts/assemble_skit.py --niche "$NICHE_CFG"
 
+      # Optional preview: an artifact-service hiccup must never stop the video from publishing.
       - name: "Skit: keep a preview of the keyframes"
         if: ${{ always() && steps.fmt.outputs.format == 'skit' }}
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: skit-${{ inputs.niche }}-${{ github.run_id }}

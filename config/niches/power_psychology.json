@@ -17,7 +17,7 @@
     "max_seconds": 90
   },
 
-  "format": "narrated",
+  "format": "skit",
 
   "skit": {
     "_comment": "Cartoon-skit format (format: skit). The Calm (hero) and The Loud (his opposite) act out each power/influence principle as a short dialogue scene; the narrator (the channel owner's cloned voice) names the psychology at the end. Character sheets and location plates are generated once and cached in assets/skit/power_psychology/.",

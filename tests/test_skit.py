@@ -44,7 +44,7 @@ for niche_id in ("men_psychology", "power_psychology"):
           all(c["label"] and c["look"] for k, c in cast.items() if k != "narrator"))
     check(f"{niche_id}: cap labels are unique",
           len({c["label"] for k, c in cast.items() if k != "narrator"}) == len(cast) - 1)
-    check(f"{niche_id}: default format unchanged (narrated)", niche.get("format") == "narrated")
+    check(f"{niche_id}: live format is skit", niche.get("format") == "skit")
 
     prompt = gs.build_prompt(niche, skit, niche["topics"][0], ["kw one"])
     check(f"{niche_id}: prompt lists cast, locations and topic",
