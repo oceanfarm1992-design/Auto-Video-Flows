@@ -21,6 +21,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -36,6 +37,16 @@ def load_cfg() -> dict:
     if CONFIG.exists():
         return json.loads(CONFIG.read_text(encoding="utf-8"))
     return {}
+
+
+class RateLimited(RuntimeError):
+    """HTTP 429 from OpenRouter. Either ONE free model is busy upstream (try another), or the
+    ACCOUNT's free daily quota is used up (stop: every free model would refuse)."""
+
+    @property
+    def daily_cap(self) -> bool:
+        msg = str(self).lower()
+        return any(k in msg for k in ("per-day", "per day", "free-models-per-day", "daily"))
 
 
 def is_free_id(model: str) -> bool:
@@ -116,7 +127,7 @@ def _openrouter_call(key: str, model: str, system: str, prompt: str, max_tokens:
         body.pop("response_format")                       # some free models don't support JSON mode
         r = requests.post(f"{OPENROUTER_BASE}/chat/completions", json=body, headers=headers, timeout=240)
     if r.status_code == 429:
-        raise RuntimeError("rate-limited (free tier: 20/min, 50/day)")
+        raise RateLimited(r.text[:300])
     r.raise_for_status()
     data = r.json()
     if "error" in data:
@@ -152,11 +163,17 @@ def chat_json(system: str, prompt: str, openai_model: str = "gpt-4.1", max_token
                 _OR_STATE["ok"] = model
                 print(f"[llm] {task}: OpenRouter {model} (free)")
                 return out, f"openrouter:{model}"
+            except RateLimited as exc:
+                if exc.daily_cap:
+                    print("[llm] OpenRouter free daily quota used up; using OpenAI for the rest of this run",
+                          file=sys.stderr)
+                    _OR_STATE["dead"] = True
+                    break
+                print(f"[llm] OpenRouter {model} is busy (429: {str(exc)[:140]}), trying the next free model",
+                      file=sys.stderr)
+                time.sleep(2)
             except Exception as exc:  # noqa: BLE001
                 print(f"[llm] OpenRouter {model} failed: {str(exc)[:160]}", file=sys.stderr)
-                if "rate-limited" in str(exc):
-                    _OR_STATE["dead"] = True      # daily/minute cap hit: don't burn time on others
-                    break
         else:
             if not _OR_STATE.get("ok"):
                 _OR_STATE["dead"] = True
