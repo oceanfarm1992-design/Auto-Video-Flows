@@ -179,6 +179,18 @@ jobs:
           IMAGE_PROVIDER: ${{ vars.IMAGE_PROVIDER }}
         run: python scripts/generate_keyframes.py --niche "$NICHE_CFG"
 
+      # Better lip sync for the free doodle shots (scripts/lipsync.py). Optional: without it
+      # the built-in text + loudness method is used.
+      - name: "Skit: install Rhubarb Lip Sync (optional)"
+        if: steps.fmt.outputs.format == 'skit'
+        continue-on-error: true
+        run: |
+          V=1.14.0
+          curl -fsSL -o /tmp/rhubarb.zip "https://github.com/DanielSWolf/rhubarb-lip-sync/releases/download/v${V}/Rhubarb-Lip-Sync-${V}-Linux.zip"
+          sudo unzip -q -o /tmp/rhubarb.zip -d /opt
+          BIN=$(find /opt -maxdepth 2 -type f -name rhubarb | head -1)
+          [ -n "$BIN" ] && echo "RHUBARB_BIN=$BIN" >> "$GITHUB_ENV" && "$BIN" --version
+
       - name: "Skit: animate shots"
         if: steps.fmt.outputs.format == 'skit'
         env:

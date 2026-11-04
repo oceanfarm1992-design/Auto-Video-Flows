@@ -9,8 +9,9 @@ For each shot (duration = its line's span in build/skit_timeline.json):
          of video.fal_durations that covers the line (the editor trims / holds).
   local  free: a slow push-in with a gentle drift on the keyframe (no character motion).
          Used when VIDEO_PROVIDER=local, when FAL_KEY is missing, or when a fal job fails.
-  doodle when a shot has no keyframe at all (no image provider), the existing stick-figure
-         doodle engine draws it, so the pipeline still finishes with zero paid services.
+  doodle when a shot has no keyframe at all (no image provider), doodle_skit.py draws the shot
+         itself: the cast as stick figures with their caps and names, the speaker lip-synced
+         to the voice. The pipeline still finishes with zero paid services.
 
 Output: build/clips/shot_NN.mp4 + build/skit_clips.json [{index, file, duration, source}]
 
@@ -109,10 +110,9 @@ def local_motion(image: str, dest: str, duration: float, idx: int, fps: int = 24
                    check=True)
 
 
-def doodle_clip(shot: dict, dest: str, duration: float, idx: int, used: list) -> None:
-    from fetch_footage_multi import generate_doodle
-    seg = {"text": shot["line"], "scene": "", "label": ""}
-    generate_doodle(seg, dest, duration, idx, used, start_s=99.0)
+def doodle_clip(niche: dict, shot: dict, dest: str, t0: float, duration: float, idx: int, track) -> None:
+    from doodle_skit import render_shot
+    render_shot(niche, shot, t0, duration, dest, idx, track)
 
 
 def valid_video(path: str, min_seconds: float = 0.5) -> bool:
@@ -151,7 +151,7 @@ def main() -> None:
     ap.add_argument("--out-dir", default="build/clips")
     args = ap.parse_args()
 
-    _, skit = load_configs(args.niche, args.skit_config)
+    niche, skit = load_configs(args.niche, args.skit_config)
     vcfg, fps = skit["video"], int(skit["edit"]["fps"])
     data = load_script(args.script)
     timeline = json.loads(Path(args.timeline).read_text(encoding="utf-8"))["lines"]
@@ -194,7 +194,10 @@ def main() -> None:
                 except Exception as exc:  # noqa: BLE001
                     print(f"[animate] shot {i:02d}: download failed ({exc})", file=sys.stderr)
 
-    used_doodles: list = []
+    track = None
+    if any(i not in results and i not in frames for i in range(len(data["shots"]))):
+        from doodle_skit import load_track
+        track = load_track(str(Path(args.timeline).parent))
     for i, shot in enumerate(data["shots"]):
         if i in results:
             continue
@@ -203,7 +206,7 @@ def main() -> None:
             local_motion(frames[i], dest, durs[i], i, fps)
             results[i] = (dest, "local")
         else:
-            doodle_clip(shot, dest, durs[i], i, used_doodles)
+            doodle_clip(niche, shot, dest, timeline[i]["shot_start"], durs[i], i, track)
             results[i] = (dest, "doodle")
 
     manifest = [{"index": i, "file": results[i][0], "duration": round(durs[i], 3), "source": results[i][1]}

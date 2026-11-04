@@ -239,6 +239,21 @@ rewritten for this pipeline:
 - **Downloaded AI clips are validated** (`animate_shots.valid_video`): every fal.ai clip is fully decoded before
   use. A truncated or empty clip is downloaded again, then replaced by the free push-in if still broken.
 
-Offline test: `python tests/test_skit.py` and `python tests/test_edge_captions.py`. Full offline dry run (no keys): write `build/script.json` with
+### Free doodle skits with lip sync
+
+When a shot has no AI keyframe (`IMAGE_PROVIDER=none`, or an image failed), `scripts/doodle_skit.py` draws
+**the shot itself**, at no cost:
+- the shot's cast as stick figures, each with a cap in their configured colour and their name above their head;
+- the speaker's mouth lip-synced to the voice, with talking gestures that follow its loudness;
+- listeners that blink, breathe and react;
+- background props taken from the location's description (sofa, window, desk, shelves...);
+- close-ups when the framing asks for one.
+
+`scripts/lipsync.py` picks the mouth shapes (the standard 9-shape cartoon set). It uses
+[Rhubarb Lip Sync](https://github.com/DanielSWolf/rhubarb-lip-sync) (MIT) when it is installed: the workflow
+installs it, and `RHUBARB_BIN` points to it. Otherwise it uses a built-in method: each word's letters become
+shapes timed by the word timings, and the mouth closes wherever the voice is silent.
+
+Offline tests: `python tests/test_skit.py`, `python tests/test_edge_captions.py`, `python tests/test_lipsync.py`. Full offline dry run (no keys): write `build/script.json` with
 `generate_skit.normalise(...)`, then `generate_dialogue_tts.py --engines silent`,
 `IMAGE_PROVIDER=none generate_keyframes.py`, `VIDEO_PROVIDER=local animate_shots.py`, `assemble_skit.py`.
