@@ -183,9 +183,10 @@ def detect_mouths(closed: Image.Image, opened: Image.Image, n_chars: int,
             continue
         _, x0, y0, x1, y1 = best
         bw, bh = x1 - x0 + 1, y1 - y0 + 1
-        pad_x, pad_y = bw * 0.6 + 2, bh * 0.8 + 2
-        box = [int(max(0, (x0 - pad_x) * scale)), int(max(0, (y0 - pad_y) * scale)),
-               int(min(w, (x1 + 1 + pad_x) * scale)), int(min(h, (y1 + 1 + pad_y) * scale))]
+        # little room ABOVE the mouth (the eyes are there), more below for the jaw/chin
+        pad_x, pad_up, pad_down = bw * 0.5 + 2, bh * 0.25 + 1, bh * 0.9 + 2
+        box = [int(max(0, (x0 - pad_x) * scale)), int(max(0, (y0 - pad_up) * scale)),
+               int(min(w, (x1 + 1 + pad_x) * scale)), int(min(h, (y1 + 1 + pad_down) * scale))]
         if not boxes or box != boxes[-1]:
             boxes.append(box)
     return boxes
@@ -219,14 +220,26 @@ def assign_mouths(boxes: list[list[int]], chars: list[str], width: int) -> dict[
 
 
 def talking_frame(closed: Image.Image, opened: Image.Image, box: list[int] | None) -> Image.Image:
-    """The closed picture with one mouth patch from the open picture (feathered edges)."""
+    """The closed picture with ONE mouth from the open picture: only the pixels inside the mouth box
+    that really changed (grown a little so the lips come along), with soft edges. Pixels the edit
+    left alone stay exactly as they were, so nothing ghosts around the mouth."""
     if not box:
         return closed
     x0, y0, x1, y1 = box
+    a = np.asarray(closed.crop(box), dtype=np.int16)
+    b = np.asarray(opened.crop(box), dtype=np.int16)
+    changed = (np.abs(a - b).max(axis=2) > 30).astype(np.uint8) * 255
+    grow = max(3, int(min(x1 - x0, y1 - y0) * 0.08))
+    m = Image.fromarray(changed).filter(ImageFilter.MaxFilter(2 * (grow // 2) + 1))
+    # fade towards the box edges so the patch never shows a hard border
+    edge = Image.new("L", m.size, 0)
+    f = max(2, int(min(m.size) * 0.12))
+    edge.paste(255, (f, f, m.size[0] - f, m.size[1] - f))
+    edge = edge.filter(ImageFilter.GaussianBlur(f))
+    local = Image.fromarray((np.asarray(m, dtype=np.float32) * np.asarray(edge, dtype=np.float32) / 255).astype(np.uint8))
+    local = local.filter(ImageFilter.GaussianBlur(max(1, grow // 2)))
     alpha = Image.new("L", closed.size, 0)
-    feather = max(3, int(min(x1 - x0, y1 - y0) * 0.18))
-    alpha.paste(255, (x0 + feather, y0 + feather, x1 - feather, y1 - feather))
-    alpha = alpha.filter(ImageFilter.GaussianBlur(feather))
+    alpha.paste(local, (x0, y0))
     return Image.composite(opened, closed, alpha)
 
 

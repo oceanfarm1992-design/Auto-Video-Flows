@@ -152,4 +152,16 @@ check("a vision hint at the mouth picks the mouth", len(b3) >= 1 and contains(b3
 b4 = mf.detect_mouths(ec, mf.aligned_open(ec, only_eyes), 2, hints=[(330 / W, 867 / H), None])
 check("a hint where nothing changed gives no box", not any(contains(b, 330, 867) for b in b4))
 
+
+
+# the patch must not drag in changes from right above the mouth (the eye ghost from run #57)
+eb = mf.detect_mouths(ec, mf.aligned_open(ec, eo), 2, hints=[(330 / W, 867 / H), None])
+tf = np.asarray(mf.talking_frame(ec, mf.aligned_open(ec, eo), eb[0])).astype(int)
+base_e = np.asarray(ec).astype(int)
+check("mouth box stays below the eyes", bool(eb) and eb[0][1] > 765)
+# synthetic face: eyes at y 715-765 (x 290 / 370), mouth at y 815-840 (x 330)
+check("talking frame leaves the eyes untouched", np.abs(tf[740, 290] - base_e[740, 290]).sum() < 20
+      and np.abs(tf[740, 370] - base_e[740, 370]).sum() < 20)
+check("...but opens the mouth", np.abs(tf[832, 330] - base_e[832, 330]).sum() > 100)
+
 sys.exit(1 if FAILED else 0)
