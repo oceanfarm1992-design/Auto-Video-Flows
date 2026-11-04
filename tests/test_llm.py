@@ -113,4 +113,48 @@ llm.load_cfg = lambda: {"use_openrouter": True, "openrouter_tasks": ["skit_scrip
 _, used = llm.chat_json("s", "p", task="skit_script")
 check("per-run free request cap is enforced", n["k"] == 3 and used == "openai:gpt-4.1")
 
+import importlib  # noqa: E402
+llm = importlib.reload(llm)
+check("answer taken from content", llm.reply_text({"choices": [{"message": {"content": '{"a":1}'},
+      "finish_reason": "stop"}]}) == ('{"a":1}', "stop"))
+check("empty content falls back to JSON at the end of `reasoning`",
+      llm.reply_text({"choices": [{"message": {"content": "", "reasoning": 'thinking... {"a": 2}'}}]})[0].endswith('{"a": 2}'))
+
+
+class Resp:
+    def __init__(self, status, body):
+        self.status_code, self._b, self.text = status, body, str(body)
+
+    def json(self):
+        return self._b
+
+    def raise_for_status(self):
+        pass
+
+
+sent = []
+llm.requests.post = lambda url, json, headers, timeout: (sent.append(json), Resp(200, {"choices": [{
+    "message": {"content": "Let me think about"}, "finish_reason": "length"}]}))[1]
+try:
+    llm._openrouter_call("k", "m:free", "s", "p", 4000)
+    check("cut-off reply is reported with its reason", False)
+except RuntimeError as e:
+    check("cut-off reply is reported with its reason", "cut off at the token limit" in str(e))
+check("OpenRouter gets a big token budget and low, hidden reasoning",
+      sent[0]["max_tokens"] >= 16000 and sent[0]["reasoning"] == {"effort": "low", "exclude": True})
+
+calls = []
+
+
+def post(url, json, headers, timeout):
+    calls.append(dict(json))
+    if "reasoning" in json:
+        return Resp(400, {"error": "unsupported parameter: reasoning"})
+    return Resp(200, {"choices": [{"message": {"content": '{"ok": 1}'}, "finish_reason": "stop"}]})
+
+
+llm.requests.post = post
+check("a model that rejects the reasoning option is retried without it",
+      llm._openrouter_call("k", "m:free", "s", "p", 4000) == {"ok": 1} and "reasoning" not in calls[-1])
+
 sys.exit(1 if FAILED else 0)

@@ -117,22 +117,45 @@ def openrouter_candidates(cfg: dict, key: str) -> list[str]:
     return [m for m in out if is_free_id(m)]
 
 
+OPENROUTER_MAX_TOKENS = 16000   # free: no cost. Reasoning models think first, so 4k left no room for the answer
+
+
+def reply_text(data: dict) -> tuple[str, str]:
+    """(answer text, finish_reason) from an OpenRouter chat response. Some reasoning models leave
+    `content` empty and put everything in `reasoning`; the JSON may then be at its end."""
+    choice = (data.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    text = msg.get("content") or ""
+    if not text.strip() and "{" in (msg.get("reasoning") or ""):
+        text = msg["reasoning"]
+    return text, str(choice.get("finish_reason") or choice.get("native_finish_reason") or "")
+
+
 def _openrouter_call(key: str, model: str, system: str, prompt: str, max_tokens: int) -> dict:
-    body = {"model": model, "max_tokens": max_tokens, "temperature": 0.8,
+    body = {"model": model, "max_tokens": max(max_tokens, OPENROUTER_MAX_TOKENS), "temperature": 0.8,
             "response_format": {"type": "json_object"},
+            # keep thinking short and out of the answer (ignored by models that don't reason)
+            "reasoning": {"effort": "low", "exclude": True},
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}]}
     headers = {"Authorization": f"Bearer {key}", "X-Title": "auto-video-flows"}
-    r = requests.post(f"{OPENROUTER_BASE}/chat/completions", json=body, headers=headers, timeout=240)
-    if r.status_code == 400 and "response_format" in r.text:
-        body.pop("response_format")                       # some free models don't support JSON mode
-        r = requests.post(f"{OPENROUTER_BASE}/chat/completions", json=body, headers=headers, timeout=240)
+    r = requests.post(f"{OPENROUTER_BASE}/chat/completions", json=body, headers=headers, timeout=300)
+    for opt in ("response_format", "reasoning"):          # some free models reject these options
+        if r.status_code == 400 and opt in r.text:
+            body.pop(opt)
+            r = requests.post(f"{OPENROUTER_BASE}/chat/completions", json=body, headers=headers, timeout=300)
     if r.status_code == 429:
         raise RateLimited(r.text[:300])
     r.raise_for_status()
     data = r.json()
     if "error" in data:
         raise RuntimeError(str(data["error"])[:200])
-    return parse_json(data["choices"][0]["message"]["content"])
+    text, finish = reply_text(data)
+    try:
+        return parse_json(text)
+    except (ValueError, json.JSONDecodeError) as exc:
+        why = "cut off at the token limit" if finish == "length" else (
+            "empty reply" if not text.strip() else f"finish={finish or '?'}")
+        raise RuntimeError(f"no usable JSON ({why}; {len(text)} chars: {text[:80]!r})") from exc
 
 
 _OR_STATE: dict = {}   # remembered across calls in one run: candidates, the model that worked, dead flag
