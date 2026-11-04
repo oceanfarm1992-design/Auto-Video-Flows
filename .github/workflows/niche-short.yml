@@ -70,7 +70,7 @@ jobs:
         if: steps.fmt.outputs.format == 'narrated'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.OPENROUTER_API }}
           TOPIC_INDEX: ${{ inputs.topic_index }}
         run: |
           TOPIC_ARG=""
@@ -134,7 +134,7 @@ jobs:
         if: steps.fmt.outputs.format == 'skit'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.OPENROUTER_API }}
           TOPIC_INDEX: ${{ inputs.topic_index }}
         run: |
           TOPIC_ARG=""
@@ -150,7 +150,7 @@ jobs:
         if: steps.fmt.outputs.format == 'skit'
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY || secrets.OPENROUTER_API }}
         run: |
           ok() { python -c "import json,sys;v=json.load(open('build/factcheck.json')).get('verdict','');sys.exit(0 if v in ('pass','skipped_no_claims','error') else 1)"; }
           if ! python scripts/factcheck_script.py || ! ok; then
