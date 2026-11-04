@@ -18,11 +18,12 @@
   },
 
   "images": {
-    "_comment": "provider: openai (GPT Image: tries openai_models in order, then the newest gpt-image model the account lists; uses OPENAI_API_KEY) | fal (FAL_KEY) | none (skip images; the doodle engine draws every shot). Cost control: openai_quality low (~8x cheaper than medium), max_keyframes unique pictures per skit (one master per location + key moments; other shots reuse the master with a virtual camera; env MAX_KEYFRAMES overrides), reference images sent at ref_max_side px. Env IMAGE_PROVIDER overrides. VERIFY: model ids/params against the provider docs if a call is rejected.",
+    "_comment": "provider: openai (GPT Image: tries openai_models in order, then the newest gpt-image model the account lists; uses OPENAI_API_KEY) | fal (FAL_KEY) | none (skip images; the doodle engine draws every shot). Cost control: openai_quality low (~8x cheaper than medium), max_keyframes unique pictures per skit (one master per location + key moments; other shots reuse the master with a virtual camera; env MAX_KEYFRAMES overrides), reference images sent at ref_max_side px. lipsync: one extra open-mouth edit per keyframe so the speaker's mouth flaps in time with the voice (mouth_flaps.py, ~1-2 cents each). Env IMAGE_PROVIDER overrides. VERIFY: model ids/params against the provider docs if a call is rejected.",
     "provider": "openai",
     "openai_models": ["gpt-image-2", "gpt-image-1.5", "gpt-image-1", "gpt-image-1-mini"],
     "openai_quality": "low",
     "max_keyframes": 4,
+    "lipsync": true,
     "ref_max_side": 768,
     "openai_size_v2": "1152x2048",
     "openai_size": "1024x1536",

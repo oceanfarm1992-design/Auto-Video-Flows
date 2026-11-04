@@ -40,7 +40,7 @@ import requests
 from PIL import Image
 
 from skit_common import (asset_dir, cast_of, character_sheet_prompt, label, load_configs, load_script,
-                         location_plate_prompt, master_prompt, plan_keyframes, shot_prompt)
+                         location_plate_prompt, master_prompt, mouth_open_prompt, plan_keyframes, shot_prompt)
 
 
 # ── providers ────────────────────────────────────────────────────────────────
@@ -112,8 +112,9 @@ class OpenAIImages:
             return base64.b64decode(r.data[0].b64_json)
         return self._call(go)
 
-    def edit(self, prompt: str, refs: list[Path]) -> bytes:
-        refs = small_refs(refs, int(self.cfg.get("ref_max_side", 768)))
+    def edit(self, prompt: str, refs: list[Path], shrink: bool = True) -> bytes:
+        if shrink:   # full size only when the output must line up with the input (mouth variants)
+            refs = small_refs(refs, int(self.cfg.get("ref_max_side", 768)))
 
         def go(m):
             files = [open(p, "rb") for p in refs]
@@ -175,7 +176,7 @@ class FalImages:
         return self._run(self.text_model, {"prompt": prompt, "num_images": 1, "aspect_ratio": "9:16",
                                            "output_format": "png"})
 
-    def edit(self, prompt: str, refs: list[Path]) -> bytes:
+    def edit(self, prompt: str, refs: list[Path], shrink: bool = True) -> bytes:
         return self._run(self.edit_model, {"prompt": prompt, "image_urls": [data_uri(p) for p in refs],
                                            "num_images": 1, "aspect_ratio": "9:16", "output_format": "png"})
 
@@ -275,6 +276,24 @@ def make_job(provider, niche: dict, skit: dict, job: dict, shots: list[dict], as
         return None
 
 
+def make_mouth_variant(provider, niche: dict, job: dict, closed: str, out_dir: Path) -> dict | None:
+    """Open-mouth edit of a keyframe + where each character's mouth is (mouth_flaps.py)."""
+    from mouth_flaps import aligned_open, assign_mouths, detect_mouths
+    dest = out_dir / f"{job['key']}_open.png"
+    try:
+        if not dest.exists():
+            save_png(with_retry(lambda: provider.edit(mouth_open_prompt(niche, job["characters"]),
+                                                      [Path(closed)], shrink=False)), dest)
+        base = Image.open(closed).convert("RGB")
+        boxes = detect_mouths(base, aligned_open(base, Image.open(dest)), len(job["characters"]))
+        mouths = assign_mouths(boxes, job["characters"], base.width)
+        print(f"[keyframes] {job['key']}: mouths found for {sorted(mouths) or 'nobody'}")
+        return {"open_file": str(dest), "mouths": mouths}
+    except Exception as exc:  # noqa: BLE001 - lip sync is an extra; the still picture still works
+        print(f"[keyframes] {job['key']}: no mouth variant ({exc})", file=sys.stderr)
+        return None
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--niche", required=True)
@@ -307,6 +326,14 @@ def main() -> None:
     with ThreadPoolExecutor(max(1, args.workers)) as pool:
         made = dict(zip([j["key"] for j in jobs],
                         pool.map(lambda j: make_job(provider, niche, skit, j, shots, assets, out_dir), jobs)))
+    lips = {}
+    if provider is not None and skit["images"].get("lipsync", True):
+        todo = [j for j in jobs if made.get(j["key"])]
+        with ThreadPoolExecutor(max(1, args.workers)) as pool:
+            for j, res in zip(todo, pool.map(lambda j: make_mouth_variant(provider, niche, j, made[j["key"]], out_dir),
+                                             todo)):
+                if res:
+                    lips[j["key"]] = res
     # a failed key moment falls back to its location's master; a failed master leaves its shots
     # to the doodle renderer
     manifest = []
@@ -315,7 +342,10 @@ def main() -> None:
         if not f and v["key"].startswith("shot_"):
             f = made.get(f"master_{shots[i]['location']}")
             v = {"key": f"master_{shots[i]['location']}", "focus": 0.5, "zoom": 1.12}
-        manifest.append({"index": i, "file": f, "key": v["key"], "focus": v["focus"], "zoom": v["zoom"]})
+        lip = lips.get(v["key"], {})
+        manifest.append({"index": i, "file": f, "key": v["key"], "focus": v["focus"], "zoom": v["zoom"],
+                         "speaker": shots[i]["speaker"], "open_file": lip.get("open_file"),
+                         "mouth": lip.get("mouths", {}).get(shots[i]["speaker"])})
     Path("build").mkdir(exist_ok=True)
     Path("build/keyframes.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     ok = sum(1 for m in manifest if m["file"])

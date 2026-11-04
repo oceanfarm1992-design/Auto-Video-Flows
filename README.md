@@ -248,6 +248,14 @@ rewritten for this pipeline:
 - **Downloaded AI clips are validated** (`animate_shots.valid_video`): every fal.ai clip is fully decoded before
   use. A truncated or empty clip is downloaded again, then replaced by the free push-in if still broken.
 
+### Mouth flaps on AI pictures
+
+With `images.lipsync` on (default), every AI keyframe gets one extra low-quality image edit with everyone's
+mouth open (about 1–2¢). `scripts/mouth_flaps.py` aligns the two pictures, finds each character's mouth (the
+compact regions that turned dark), and while a character speaks it swaps in only their mouth from the open
+picture, timed by the lip-sync track (Rhubarb on CI). The rest of the frame stays pixel-identical, and
+listeners keep their mouths closed. If a mouth can't be found, that shot falls back to the still picture.
+
 ### Free doodle skits with lip sync
 
 When a shot has no AI keyframe (`IMAGE_PROVIDER=none`, or an image failed), `scripts/doodle_skit.py` draws

@@ -159,12 +159,14 @@ def main() -> None:
     vcfg, fps = skit["video"], int(skit["edit"]["fps"])
     data = load_script(args.script)
     timeline = json.loads(Path(args.timeline).read_text(encoding="utf-8"))["lines"]
-    frames, views = {}, {}
+    frames, views, lips = {}, {}, {}
     if Path(args.keyframes).exists():
         for k in json.loads(Path(args.keyframes).read_text()):
             if k.get("file"):
                 frames[k["index"]] = k["file"]
                 views[k["index"]] = (float(k.get("focus", 0.5)), float(k.get("zoom", 1.07)))
+                if k.get("open_file") and k.get("mouth"):
+                    lips[k["index"]] = (k["open_file"], k["mouth"])
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -202,7 +204,7 @@ def main() -> None:
                     print(f"[animate] shot {i:02d}: download failed ({exc})", file=sys.stderr)
 
     track = None
-    if any(i not in results and i not in frames for i in range(len(data["shots"]))):
+    if any(i not in results and (i not in frames or i in lips) for i in range(len(data["shots"]))):
         from doodle_skit import load_track
         track = load_track(str(Path(args.timeline).parent))
     for i, shot in enumerate(data["shots"]):
@@ -211,6 +213,17 @@ def main() -> None:
         dest = str(out / f"shot_{i:02d}.mp4")
         if i in frames:
             focus, zoom = views.get(i, (0.5, 1.07))
+            if i in lips:
+                from mouth_flaps import render_talking
+                open_file, box = lips[i]
+                try:
+                    n_open = render_talking(frames[i], open_file, box, dest, durs[i], fps, focus, zoom,
+                                            track, timeline[i]["shot_start"])
+                    results[i] = (dest, "lipsync")
+                    print(f"[animate] shot {i:02d}: lip sync ({n_open} open-mouth frames)")
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[animate] shot {i:02d}: lip sync failed ({exc}); still picture", file=sys.stderr)
             local_motion(frames[i], dest, durs[i], i, fps, focus, zoom)
             results[i] = (dest, "local")
         else:
@@ -220,7 +233,7 @@ def main() -> None:
     manifest = [{"index": i, "file": results[i][0], "duration": round(durs[i], 3), "source": results[i][1]}
                 for i in range(len(data["shots"]))]
     Path("build/skit_clips.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    counts = {s: sum(1 for m in manifest if m["source"] == s) for s in ("fal", "local", "doodle")}
+    counts = {s: sum(1 for m in manifest if m["source"] == s) for s in ("fal", "lipsync", "local", "doodle")}
     print(f"[animate] clips ready: {counts}")
 
 

@@ -187,3 +187,12 @@ def master_prompt(niche: dict, skit: dict, location: str, chars: list[str], ref_
         "character's face, body shape, outfit, colours and the name on their cap exactly as in their reference "
         f"image, and keep the location exactly as in its reference. {style_block(skit)}"
     )
+
+
+def mouth_open_prompt(niche: dict, chars: list[str]) -> str:
+    who = ", ".join(label(niche, c) for c in chars) or "every character"
+    return (
+        f"Edit this exact image. Only change: {who} now have their mouths open mid-word, a clear dark open "
+        "mouth on each face. Change NOTHING else: identical pose, framing, camera, outlines, colours, lighting, "
+        "background, caps and cap text, same size and position of everything. Same cartoon style."
+    )
