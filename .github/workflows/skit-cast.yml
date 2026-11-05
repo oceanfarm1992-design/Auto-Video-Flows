@@ -42,7 +42,7 @@ jobs:
         run: python scripts/generate_keyframes.py --niche "config/niches/${{ inputs.niche }}.json" --assets-only
 
       - name: Upload designs for review
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cast-${{ inputs.niche }}-${{ github.run_id }}
           path: assets/skit/${{ inputs.niche }}/
