@@ -1,9 +1,13 @@
 name: retry-on-failure
 
-# If today's rotated build (daily-short/men-short/power-short, triggered by
-# rotate-short.yml) fails, automatically retry it once.
-# Only retries on the first failure (run_attempt == 1) so a second
-# failure doesn't trigger an infinite loop.
+# If the SCHEDULED build (men-short/power-short/daily-short started by rotate-short.yml on main)
+# fails, retry it once with posting on.
+#
+# Safety rules (a retry posts publicly):
+#   - only runs on main, and only ones started by the scheduler bot (github-actions[bot]);
+#     manual or feature-branch test runs are never retried
+#   - at most ONE retry per workflow per day: if the same workflow already ran more than once
+#     on main today, nothing is retried (this also stops a retry from retrying itself)
 on:
   workflow_run:
     workflows: ["daily-short", "men-short", "power-short"]
@@ -17,13 +21,22 @@ jobs:
     runs-on: ubuntu-latest
     if: |
       github.event.workflow_run.conclusion == 'failure' &&
-      github.event.workflow_run.run_attempt == 1
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.triggering_actor.login == 'github-actions[bot]'
     steps:
-      - name: Re-trigger the failed flow (skip_post=false for a real retry)
+      - name: Re-trigger the failed flow once (skip_post=false for a real retry)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WF: ${{ github.event.workflow_run.name }}
+          REPO: ${{ github.repository }}
         run: |
-          WF="${{ github.event.workflow_run.name }}"
-          echo "$WF failed on attempt 1 — auto-retrying..."
-          gh workflow run "$WF.yml" -f skip_post=false --repo "${{ github.repository }}"
-          echo "Retry triggered."
+          TODAY=$(date -u +%Y-%m-%d)
+          RUNS=$(gh api "repos/$REPO/actions/workflows/$WF.yml/runs?branch=main&created=$TODAY&per_page=20" \
+                 --jq '.workflow_runs | length')
+          echo "$WF runs on main today: $RUNS"
+          if [ "${RUNS:-0}" -gt 1 ]; then
+            echo "Already retried today; not retrying again."
+            exit 0
+          fi
+          echo "$WF failed - retrying once..."
+          gh workflow run "$WF.yml" -f skip_post=false --repo "$REPO"
