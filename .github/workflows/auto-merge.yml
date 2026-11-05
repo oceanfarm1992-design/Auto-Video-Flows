@@ -37,15 +37,41 @@ jobs:
             echo "merge=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # A pip update must still install on the Python the video workflows use (3.11).
+      # PR #9 (4 Nov) bumped numpy to 2.5 (needs Python 3.12) and soundfile past what styletts2
+      # allows, was auto-merged, and every scheduled video failed at "Install python deps".
+      - name: Check out the update (pip only)
+        if: steps.decision.outputs.merge == 'true' && steps.meta.outputs.package-ecosystem == 'pip'
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-python@v7
+        if: steps.decision.outputs.merge == 'true' && steps.meta.outputs.package-ecosystem == 'pip'
+        with:
+          python-version: "3.11"
+
+      - name: Check the updated requirements still install on Python 3.11
+        id: installcheck
+        if: steps.decision.outputs.merge == 'true' && steps.meta.outputs.package-ecosystem == 'pip'
+        run: |
+          python -m pip install --upgrade pip
+          if pip install --dry-run --ignore-installed -r requirements.txt; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::error::These dependency updates do not install on Python 3.11; leaving the PR open for review."
+          fi
+
       - name: Auto-approve
-        if: steps.decision.outputs.merge == 'true'
+        if: steps.decision.outputs.merge == 'true' && steps.installcheck.outputs.ok != 'false'
         run: gh pr review --approve "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Auto-merge
-        if: steps.decision.outputs.merge == 'true'
+        if: steps.decision.outputs.merge == 'true' && steps.installcheck.outputs.ok != 'false'
         run: gh pr merge --squash "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}

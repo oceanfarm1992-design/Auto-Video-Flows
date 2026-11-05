@@ -13,6 +13,13 @@ updates:
     groups:
       all-pip:
         patterns: ["*"]
+    ignore:
+      # The video workflows run Python 3.11: numpy 2.5+ needs 3.12, and styletts2 (cloned narrator
+      # voice) only works with soundfile 0.12.x. Bumping these broke every run on 4-5 Nov.
+      - dependency-name: "numpy"
+        versions: [">=2.5"]
+      - dependency-name: "soundfile"
+        versions: [">=0.13"]
 
   # Keep GitHub Actions versions up to date
   - package-ecosystem: "github-actions"
