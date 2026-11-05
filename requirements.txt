@@ -1,6 +1,6 @@
 # Core pipeline dependencies (all pure-python or wheels that install cleanly on GitHub Actions Ubuntu)
 requests>=2.34.2
-openai>=3.41.0
+openai>=3.42.1
 
 # TTS: StyleTTS2 (MIT license) clones the channel owner's own voice from a private
 # reference sample fetched at runtime (see VOICE_REPO_PAT in scripts/generate_tts.py
@@ -18,7 +18,7 @@ soundfile>=0.12.1,<0.13  # styletts2 requires soundfile 0.12.x
 
 # TTS: edge-tts — free Microsoft neural voices (no API key) with exact word timings for
 # captions. Used by generate_tts.py (--engine edge / auto) and the skit cast voices.
-edge-tts>=7.0.0
+edge-tts>=7.3.1
 
 # TTS: piper-tts ships prebuilt wheels for linux and runs fully offline (no API key).
 # VERIFY: exact package name / version. On PyPI the package is "piper-tts" and the CLI entrypoint is "piper".
@@ -36,4 +36,4 @@ google-api-python-client>=2.201.0
 
 # Doodle / stick-man animation engine (scripts/doodle_engine.py)
 Pillow>=13.0.0
-numpy>=1.24.0,<2.5  # numpy 2.5+ needs Python 3.12; the workflows run Python 3.11
+numpy>=2.4.6,<2.5  # numpy 2.5+ needs Python 3.12; the workflows run Python 3.11
