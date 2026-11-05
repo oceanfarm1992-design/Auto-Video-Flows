@@ -159,7 +159,7 @@ def main() -> None:
     vcfg, fps = skit["video"], int(skit["edit"]["fps"])
     data = load_script(args.script)
     timeline = json.loads(Path(args.timeline).read_text(encoding="utf-8"))["lines"]
-    frames, views, lips = {}, {}, {}
+    frames, views, lips, rigs = {}, {}, {}, {}
     if Path(args.keyframes).exists():
         for k in json.loads(Path(args.keyframes).read_text()):
             if k.get("file"):
@@ -167,6 +167,9 @@ def main() -> None:
                 views[k["index"]] = (float(k.get("focus", 0.5)), float(k.get("zoom", 1.07)))
                 if k.get("open_file") and k.get("mouth"):
                     lips[k["index"]] = (k["open_file"], k["mouth"])
+                if k.get("rig"):
+                    rigs[k["index"]] = (k["rig"], k.get("open_file"), k.get("speaker", ""), k.get("emotion", ""))
+    fx_on = bool(skit.get("fx", {}).get("enabled", False)) and os.environ.get("CARTOON_FX", "1") != "0"
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -204,7 +207,8 @@ def main() -> None:
                     print(f"[animate] shot {i:02d}: download failed ({exc})", file=sys.stderr)
 
     track = None
-    if any(i not in results and (i not in frames or i in lips) for i in range(len(data["shots"]))):
+    if any(i not in results and (i not in frames or i in lips or (fx_on and i in rigs))
+           for i in range(len(data["shots"]))):
         from doodle_skit import load_track
         track = load_track(str(Path(args.timeline).parent))
     for i, shot in enumerate(data["shots"]):
@@ -213,6 +217,18 @@ def main() -> None:
         dest = str(out / f"shot_{i:02d}.mp4")
         if i in frames:
             focus, zoom = views.get(i, (0.5, 1.07))
+            if fx_on and i in rigs:                          # full cartoon toolbox (cartoon_fx.py)
+                from cartoon_fx import render_cartoon
+                rig, open_file, speaker, emotion = rigs[i]
+                try:
+                    c = render_cartoon(frames[i], open_file, rig, speaker, emotion, dest, durs[i], fps, focus,
+                                       zoom, track, timeline[i]["shot_start"], seed=i)
+                    results[i] = (dest, "cartoon")
+                    print(f"[animate] shot {i:02d}: cartoon fx (mouth poses {c['open']}, blinks {c['blinks']}, "
+                          f"nods {c['nods']}, hand {c['hands']}, symbol {c['symbol'] or '-'}, punch {c['punch']})")
+                    continue
+                except Exception as exc:  # noqa: BLE001
+                    print(f"[animate] shot {i:02d}: cartoon fx failed ({exc}); lip sync only", file=sys.stderr)
             if i in lips:
                 from mouth_flaps import render_talking
                 open_file, box = lips[i]
@@ -233,7 +249,7 @@ def main() -> None:
     manifest = [{"index": i, "file": results[i][0], "duration": round(durs[i], 3), "source": results[i][1]}
                 for i in range(len(data["shots"]))]
     Path("build/skit_clips.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    counts = {s: sum(1 for m in manifest if m["source"] == s) for s in ("fal", "lipsync", "local", "doodle")}
+    counts = {s: sum(1 for m in manifest if m["source"] == s) for s in ("fal", "cartoon", "lipsync", "local", "doodle")}
     print(f"[animate] clips ready: {counts}")
 
 

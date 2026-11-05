@@ -208,3 +208,17 @@ def mouth_points_prompt(niche: dict, chars: list[str]) -> str:
         "(x, 0 = left edge, 1 = right edge) and height (y, 0 = top, 1 = bottom). Reply with JSON only: "
         f"{{{keys}}}. Use null for anyone whose mouth is not visible."
     )
+
+
+def face_points_prompt(niche: dict, chars: list[str]) -> str:
+    names = ", ".join(label(niche, c) for c in chars)
+    one = '{"head": [x, y], "left_eye": [x, y], "right_eye": [x, y], "mouth": [x, y], "hand": [x, y]}'
+    keys = ", ".join(f'"{c}": {one}' for c in chars)
+    return (
+        f"This cartoon picture shows, from left to right: {names} (each wears a cap with their name). "
+        "For each of them give positions as fractions of the image width (x, 0 = left edge, 1 = right edge) "
+        "and height (y, 0 = top, 1 = bottom): the CENTER OF THE FACE (head), the center of each EYE (the "
+        "character's left_eye is on the viewer's right), the center of the MOUTH, and the hand most likely to "
+        "gesture while talking. Reply with JSON only: "
+        f"{{{keys}}}. Use null for anything not visible."
+    )

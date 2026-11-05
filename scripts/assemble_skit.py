@@ -46,6 +46,15 @@ def conform(src: str, dest: str, dur: float, w: int, h: int, fps: int) -> None:
          "-c:v", "libx264", "-preset", "veryfast", "-crf", "16", dest])
 
 
+def iris_filter(total: float, t_in: float = 0.6, t_out: float = 0.8) -> str:
+    """Old-cartoon iris: a circle opens on black at the start and closes at the end."""
+    R = "hypot(W/2,H/2)"
+    rad = (f"if(lt(T,{t_in}),{R}*T/{t_in},if(gt(T,{total - t_out:.3f}),{R}*max(0,{total:.3f}-T)/{t_out},{R}))")
+    inside = f"lte(hypot(X-W/2,Y-H/2),{rad})"
+    return (f"geq=lum='if({inside},lum(X,Y),0)':cb='if({inside},cb(X,Y),128)':cr='if({inside},cr(X,Y),128)':"
+            f"enable='lt(t,{t_in})+gt(t,{total - t_out:.3f})'")
+
+
 def overlay_filter(title: str, cta: str, captions: str | None, total: float, ecfg: dict) -> str:
     chain = []
     if ecfg.get("vignette", True):
@@ -62,6 +71,8 @@ def overlay_filter(title: str, cta: str, captions: str | None, total: float, ecf
     if captions:
         subs = captions.replace("\\", "/").replace(":", "\\:")
         chain.append(f"subtitles='{subs}'")
+    if ecfg.get("iris"):
+        chain.append(iris_filter(total))
     cta_s = float(ecfg.get("cta_seconds", 2.5))
     chain.append(
         f"drawtext=fontfile={FONT_BOLD}:text='{drawtext_escape(cta)}':fontcolor=white:fontsize=48:"

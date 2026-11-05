@@ -276,6 +276,31 @@ def make_job(provider, niche: dict, skit: dict, job: dict, shots: list[dict], as
         return None
 
 
+def _pt(v):
+    ok = isinstance(v, (list, tuple)) and len(v) == 2 and all(isinstance(t, (int, float)) for t in v) \
+        and all(0 <= t <= 1 for t in v)
+    return (float(v[0]), float(v[1])) if ok else None
+
+
+def face_rig(niche: dict, chars: list[str], image: str) -> tuple[list | None, dict]:
+    """One vision call: per character head / eyes / mouth / hand (fractions). Returns
+    (mouth hints in character order, {char: {feature: (x, y) fractions}})."""
+    from llm import vision_json
+    from skit_common import face_points_prompt
+    try:
+        data, used = vision_json(face_points_prompt(niche, chars), image)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[keyframes] no face points ({str(exc)[:120]})", file=sys.stderr)
+        return None, {}
+    rig = {}
+    for c in chars:
+        f = data.get(c) if isinstance(data.get(c), dict) else {}
+        rig[c] = {k: _pt(f.get(k)) for k in ("head", "left_eye", "right_eye", "mouth", "hand")}
+    print(f"[keyframes] face points from {used}: "
+          + ", ".join(f"{c}: {sum(v is not None for v in r.values())}/5" for c, r in rig.items()))
+    return [rig[c]["mouth"] for c in chars], rig
+
+
 def mouth_hints(niche: dict, chars: list[str], image: str) -> list | None:
     """Where each character's mouth is, per a vision model (free OpenRouter VL first, then
     gpt-4.1-mini, ~0.1 cent). Only used to pick the right changed region; None if unavailable."""
@@ -305,7 +330,9 @@ def make_mouth_variant(provider, niche: dict, job: dict, closed: str, out_dir: P
             save_png(with_retry(lambda: provider.edit(mouth_open_prompt(niche, job["characters"]),
                                                       [Path(closed)], shrink=False)), dest)
         base = Image.open(closed).convert("RGB")
-        hints = mouth_hints(niche, job["characters"], closed)
+        hints, rig = face_rig(niche, job["characters"], closed)
+        if hints is None:
+            hints = mouth_hints(niche, job["characters"], closed)
         boxes = detect_mouths(base, aligned_open(base, Image.open(dest)), len(job["characters"]), hints=hints)
         mouths = assign_mouths(boxes, job["characters"], base.width)
         from mouth_flaps import debug_overlay
@@ -313,7 +340,12 @@ def make_mouth_variant(provider, niche: dict, job: dict, closed: str, out_dir: P
         missing = [c for c in job["characters"] if c not in mouths]
         print(f"[keyframes] {job['key']}: mouths found for {sorted(mouths) or 'nobody'}"
               + (f"; not found: {missing}" if missing else ""))
-        return {"open_file": str(dest), "mouths": mouths}
+        w, h = base.size
+        rig_px = {c: {k: [v[0] * w, v[1] * h] for k, v in f.items() if v and k != "mouth"}
+                  for c, f in rig.items()}
+        for c, box in mouths.items():
+            rig_px.setdefault(c, {})["mouth_box"] = box
+        return {"open_file": str(dest), "mouths": mouths, "rig": rig_px}
     except Exception as exc:  # noqa: BLE001 - lip sync is an extra; the still picture still works
         print(f"[keyframes] {job['key']}: no mouth variant ({exc})", file=sys.stderr)
         return None
@@ -370,7 +402,8 @@ def main() -> None:
         lip = lips.get(v["key"], {})
         manifest.append({"index": i, "file": f, "key": v["key"], "focus": v["focus"], "zoom": v["zoom"],
                          "speaker": shots[i]["speaker"], "open_file": lip.get("open_file"),
-                         "mouth": lip.get("mouths", {}).get(shots[i]["speaker"])})
+                         "mouth": lip.get("mouths", {}).get(shots[i]["speaker"]),
+                         "rig": lip.get("rig"), "emotion": shots[i].get("emotion", "")})
     Path("build").mkdir(exist_ok=True)
     Path("build/keyframes.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     ok = sum(1 for m in manifest if m["file"])
