@@ -181,8 +181,14 @@ def render_cartoon(closed_path: str, open_path: str | None, rig: dict, speaker: 
         le, re_ = S(f.get("left_eye")), S(f.get("right_eye"))
         eye_d = math.dist(le, re_) if le and re_ else 0.035 * cw
         head = S(f.get("head")) or (((le[0] + re_[0]) / 2, (le[1] + re_[1]) / 2) if le and re_ else None)
+        hand = S(f.get("hand"))
+        rad = max(30.0, 2.6 * eye_d)
+        # a gesturing hand is within arm's reach of the head and not down at the floor (run #60: a sitting
+        # character's "hand" point landed on his sneakers, so the gesture moved his shoes)
+        if hand and head and not (math.dist(hand, head) <= 5.0 * rad and hand[1] <= head[1] + 4.0 * rad):
+            hand = None
         chars[cid] = {"head": head, "eyes": [e for e in (le, re_) if e], "eye_size": max(4.0, 0.3 * eye_d),
-                      "radius": max(30.0, 2.6 * eye_d), "hand": S(f.get("hand")),
+                      "radius": rad, "hand": hand,
                       "mouth_box": [int(round(v * scale)) for v in f["mouth_box"]] if f.get("mouth_box") else None,
                       "blinks": [], "phase": rng.uniform(0, 6.28)}
         t = rng.uniform(0.4, 2.0)

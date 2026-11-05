@@ -67,6 +67,14 @@ with tempfile.TemporaryDirectory() as tmp:
     check(f"animated on twos: one new pose every 2 frames ({counts['poses']} poses / {counts['frames']} frames)",
           counts["poses"] == (counts["frames"] + 1) // 2)
 
+rig_feet = {"a": {"head": [330, 760], "left_eye": [370, 740], "right_eye": [290, 740], "hand": [330, 1900],
+                  "mouth_box": [280, 790, 380, 870]}}
+with tempfile.TemporaryDirectory() as tmp:
+    c, out = os.path.join(tmp, "c.png"), os.path.join(tmp, "s.mp4")
+    picture(False).save(c)
+    cnt = cf.render_cartoon(c, None, rig_feet, "a", "calm", out, 1.0, 24, 0.5, 1.1, track, 0.0)
+    check("a 'hand' down at the feet is ignored (no shoe wobble)", cnt["hands"] == 0)
+
 # deterministic blink schedule: everyone blinks within a few seconds
 check("pop-in overshoots then settles", cf._pop(0.18) > 1.0 and cf._pop(1.0) == 1.0 and cf._pop(0) == 0)
 
