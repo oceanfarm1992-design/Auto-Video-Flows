@@ -14,7 +14,7 @@ styletts2>=0.1.6
 # fails to load (e.g. the voice-reference fetch errors). Fully offline once its
 # checkpoint is cached, no per-run API cost.
 kokoro>=0.9.4
-soundfile>=0.14.0
+soundfile>=0.12.1,<0.13  # styletts2 requires soundfile 0.12.x
 
 # TTS: edge-tts — free Microsoft neural voices (no API key) with exact word timings for
 # captions. Used by generate_tts.py (--engine edge / auto) and the skit cast voices.
@@ -36,4 +36,4 @@ google-api-python-client>=2.201.0
 
 # Doodle / stick-man animation engine (scripts/doodle_engine.py)
 Pillow>=13.0.0
-numpy>=2.5.4
+numpy>=1.24.0,<2.5  # numpy 2.5+ needs Python 3.12; the workflows run Python 3.11
